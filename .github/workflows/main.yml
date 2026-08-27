@@ -16,19 +16,14 @@ jobs:
     - name: Unzip project
       run: unzip SeparacaoBip_Android_MVP.zip
 
-    - name: Set up Java 17
+    - name: Set up Java 8
       uses: actions/setup-java@v5
       with:
-        java-version: '17'
+        java-version: '8'
         distribution: 'temurin'
 
     - name: Accept Android Licenses
       run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-
-    - name: Fix JVM target compatibility
-      run: |
-        find SeparacaoBip_Android_MVP -name "build.gradle*" -exec sed -i 's/1.8/17/g' {} +
-        find SeparacaoBip_Android_MVP -name "build.gradle*" -exec sed -i 's/VERSION_1_8/VERSION_17/g' {} +
 
     - name: Build APK
       run: |
