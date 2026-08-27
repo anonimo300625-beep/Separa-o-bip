@@ -25,14 +25,19 @@ jobs:
     - name: Accept Android Licenses
       run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
+    - name: Fix JVM target compatibility
+      run: |
+        find SeparacaoBip_Android_MVP -name "build.gradle*" -exec sed -i 's/1.8/17/g' {} +
+        find SeparacaoBip_Android_MVP -name "build.gradle*" -exec sed -i 's/VERSION_1_8/VERSION_17/g' {} +
+
     - name: Build APK
       run: |
         cd SeparacaoBip_Android_MVP
         chmod +x gradlew || true
         if [ -f "./gradlew" ]; then
-          ./gradlew assembleDebug -Pkotlin.compiler.jvmTarget=1.8 --no-daemon
+          ./gradlew assembleDebug --no-daemon
         else
-          gradle assembleDebug -Pkotlin.compiler.jvmTarget=1.8 --no-daemon
+          gradle assembleDebug --no-daemon
         fi
 
     - name: Upload APK
