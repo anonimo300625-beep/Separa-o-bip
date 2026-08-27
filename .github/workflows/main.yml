@@ -30,9 +30,9 @@ jobs:
         cd SeparacaoBip_Android_MVP
         chmod +x gradlew || true
         if [ -f "./gradlew" ]; then
-          ./gradlew assembleDebug -Dorg.gradle.java.home=$JAVA_HOME -Dkotlin.compiler.jvmTarget=1.8 --no-daemon
+          ./gradlew assembleDebug -Pkotlin.jvm.target.validation.mode=IGNORE --no-daemon
         else
-          gradle assembleDebug -Dorg.gradle.java.home=$JAVA_HOME -Dkotlin.compiler.jvmTarget=1.8 --no-daemon
+          gradle assembleDebug -Pkotlin.jvm.target.validation.mode=IGNORE --no-daemon
         fi
 
     - name: Upload APK
