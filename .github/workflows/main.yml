@@ -25,7 +25,7 @@ jobs:
     - name: Accept Android Licenses
       run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-    - name: Aplicar 10 Melhorias no Codigo
+    - name: Aplicar Melhorias no Codigo
       run: |
         cat << 'EOF' > SeparacaoBip_Android_MVP/app/src/main/res/layout/item_reposicao.xml
         <?xml version="1.0" encoding="utf-8"?>
@@ -315,8 +315,10 @@ jobs:
         EOF
 
         MAIN_FILE=$(find SeparacaoBip_Android_MVP -name "MainActivity.kt" | head -n 1)
-        cat << 'EOF' > "$MAIN_FILE"
-        package com.exemplo.separacaobip
+        PKG_NAME=$(grep "^package " "$MAIN_FILE" | head -n 1)
+
+        cat << EOF > "$MAIN_FILE"
+        $PKG_NAME
 
         import android.app.Activity
         import android.content.Intent
@@ -590,7 +592,7 @@ jobs:
                 }
             }
         }
-        EOF
+EOF
 
     - name: Build APK
       run: |
