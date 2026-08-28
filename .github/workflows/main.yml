@@ -25,7 +25,7 @@ jobs:
     - name: Accept Android Licenses
       run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-    - name: Aplicar Melhorias no Codigo
+    - name: Gerar Layout Item
       run: |
         cat << 'EOF' > SeparacaoBip_Android_MVP/app/src/main/res/layout/item_reposicao.xml
         <?xml version="1.0" encoding="utf-8"?>
@@ -104,6 +104,8 @@ jobs:
         </LinearLayout>
         EOF
 
+    - name: Gerar Layout Main
+      run: |
         cat << 'EOF' > SeparacaoBip_Android_MVP/app/src/main/res/layout/activity_main.xml
         <?xml version="1.0" encoding="utf-8"?>
         <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -314,11 +316,22 @@ jobs:
         </LinearLayout>
         EOF
 
-        MAIN_FILE=$(find SeparacaoBip_Android_MVP -name "MainActivity.kt" | head -n 1)
-        PKG_NAME=$(grep "^package " "$MAIN_FILE" | head -n 1)
+    - name: Atualizar MainActivity Kotlin
+      run: |
+        python3 -c '
+        import glob
 
-        cat << EOF > "$MAIN_FILE"
-        $PKG_NAME
+        files = glob.glob("SeparacaoBip_Android_MVP/**/MainActivity.kt", recursive=True)
+        if files:
+            main_file = files[0]
+            pkg = "package com.exemplo.separacaobip"
+            with open(main_file, "r") as f:
+                for line in f:
+                    if line.startswith("package "):
+                        pkg = line.strip()
+                        break
+
+            code = f"""{pkg}
 
         import android.app.Activity
         import android.content.Intent
@@ -351,7 +364,7 @@ jobs:
             var concluido: Boolean = false
         )
 
-        class MainActivity : AppCompatActivity() {
+        class MainActivity : AppCompatActivity() {{
 
             private lateinit var etCodigoBarras: EditText
             private lateinit var btnProcessarCodigo: Button
@@ -378,11 +391,11 @@ jobs:
 
             data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 
-            companion object {
+            companion object {{
                 private const val REQUEST_PICK_XLSX = 1001
-            }
+            }}
 
-            override fun onCreate(savedInstanceState: Bundle?) {
+            override fun onCreate(savedInstanceState: Bundle?) {{
                 super.onCreate(savedInstanceState)
                 setContentView(R.layout.activity_main)
 
@@ -399,37 +412,37 @@ jobs:
                 btnTabConcluidos = findViewById(R.id.btnTabConcluidos)
                 containerLista = findViewById(R.id.containerLista)
 
-                btnProcessarCodigo.setOnClickListener {
+                btnProcessarCodigo.setOnClickListener {{
                     processarEntrada(etCodigoBarras.text.toString().trim())
-                }
+                }}
 
-                btnIdentificarAparelho.setOnClickListener {
+                btnIdentificarAparelho.setOnClickListener {{
                     nomeOperador = "Operador " + (1..99).random()
                     tvOperador.text = "Operador: $nomeOperador"
                     Toast.makeText(this, "Aparelho identificado como: $nomeOperador", Toast.LENGTH_SHORT).show()
-                }
+                }}
 
-                btnConfiguracoes.setOnClickListener {
+                btnConfiguracoes.setOnClickListener {{
                     abrirSeletorPlanilha()
-                }
+                }}
 
-                btnTabPendentes.setOnClickListener {
+                btnTabPendentes.setOnClickListener {{
                     abaAtual = 0
                     btnTabPendentes.setBackgroundColor(Color.parseColor("#1E88E5"))
                     btnTabPendentes.setTextColor(Color.WHITE)
                     btnTabConcluidos.setBackgroundColor(Color.parseColor("#E0E0E0"))
                     btnTabConcluidos.setTextColor(Color.parseColor("#424242"))
                     atualizarInterface()
-                }
+                }}
 
-                btnTabConcluidos.setOnClickListener {
+                btnTabConcluidos.setOnClickListener {{
                     abaAtual = 1
                     btnTabConcluidos.setBackgroundColor(Color.parseColor("#1E88E5"))
                     btnTabConcluidos.setTextColor(Color.WHITE)
                     btnTabPendentes.setBackgroundColor(Color.parseColor("#E0E0E0"))
                     btnTabPendentes.setTextColor(Color.parseColor("#424242"))
                     atualizarInterface()
-                }
+                }}
 
                 adicionarOuAgruparItem("55968")
                 adicionarOuAgruparItem("47950")
@@ -439,46 +452,46 @@ jobs:
                 itemC2?.concluido = true
 
                 atualizarInterface()
-            }
+            }}
 
-            private fun extrairCodigoMate(entrada: String): String {
-                if (entrada.length <= 6 && entrada.all { it.isDigit() }) {
+            private fun extrairCodigoMate(entrada: String): String {{
+                if (entrada.length <= 6 && entrada.all {{ it.isDigit() }}) {{
                     return entrada
-                }
-                if (entrada.length > 6) {
+                }}
+                if (entrada.length > 6) {{
                     val mateSub = entrada.takeLast(5)
-                    if (mateSub.all { it.isDigit() }) return mateSub
-                }
+                    if (mateSub.all {{ it.isDigit() }}) return mateSub
+                }}
                 return entrada
-            }
+            }}
 
-            private fun processarEntrada(entrada: String) {
-                if (entrada.isEmpty()) {
+            private fun processarEntrada(entrada: String) {{
+                if (entrada.isEmpty()) {{
                     Toast.makeText(this, "Digite ou bipe um código válido", Toast.LENGTH_SHORT).show()
                     return
-                }
+                }}
 
                 val mate = extrairCodigoMate(entrada)
                 val item = adicionarOuAgruparItem(mate)
 
-                if (item != null) {
-                    val endStr = "${item.rua} / Rack ${item.rack} / Coluna ${item.coluna} / Linha ${item.linha}"
+                if (item != null) {{
+                    val endStr = "${{item.rua}} / Rack ${{item.rack}} / Coluna ${{item.coluna}} / Linha ${{item.linha}}"
                     tvFeedbackAdicionado.visibility = View.VISIBLE
-                    tvFeedbackAdicionado.text = "✅ ${item.codigoMate} adicionado — $endStr"
-                }
+                    tvFeedbackAdicionado.text = "✅ ${{item.codigoMate}} adicionado — $endStr"
+                }}
 
                 etCodigoBarras.setText("")
                 atualizarInterface()
-            }
+            }}
 
-            private fun adicionarOuAgruparItem(mate: String): ItemReposicao? {
+            private fun adicionarOuAgruparItem(mate: String): ItemReposicao? {{
                 val enderecoInfo = baseEnderecos[mate] ?: Quadruple("RUA 1", "1", "1", "A")
-                val itemExistentePendente = listaReposicao.find { it.codigoMate == mate && !it.concluido }
+                val itemExistentePendente = listaReposicao.find {{ it.codigoMate == mate && !it.concluido }}
 
-                if (itemExistentePendente != null) {
+                if (itemExistentePendente != null) {{
                     itemExistentePendente.quantidade += 1
                     return itemExistentePendente
-                } else {
+                }} else {{
                     val novoItem = ItemReposicao(
                         id = System.currentTimeMillis().toString() + "_" + (0..1000).random(),
                         codigoMate = mate,
@@ -493,28 +506,28 @@ jobs:
                     )
                     listaReposicao.add(novoItem)
                     return novoItem
-                }
-            }
+                }}
+            }}
 
-            private fun atualizarInterface() {
-                val pendentes = listaReposicao.filter { !it.concluido }
-                val concluidos = listaReposicao.filter { it.concluido }
+            private fun atualizarInterface() {{
+                val pendentes = listaReposicao.filter {{ !it.concluido }}
+                val concluidos = listaReposicao.filter {{ it.concluido }}
 
-                tvCountPendentes.text = pendentes.sumOf { it.quantidade }.toString()
-                tvCountConcluidos.text = concluidos.sumOf { it.quantidade }.toString()
-                tvCountTotal.text = listaReposicao.sumOf { it.quantidade }.toString()
+                tvCountPendentes.text = pendentes.sumOf {{ it.quantidade }}.toString()
+                tvCountConcluidos.text = concluidos.sumOf {{ it.quantidade }}.toString()
+                tvCountTotal.text = listaReposicao.sumOf {{ it.quantidade }}.toString()
 
                 containerLista.removeAllViews()
 
-                val listaExibicao = if (abaAtual == 0) {
-                    pendentes.sortedBy { it.timestamp }
-                } else {
-                    concluidos.sortedByDescending { it.timestamp }
-                }
+                val listaExibicao = if (abaAtual == 0) {{
+                    pendentes.sortedBy {{ it.timestamp }}
+                }} else {{
+                    concluidos.sortedByDescending {{ it.timestamp }}
+                }}
 
                 val sdf = SimpleDateFormat("dd/MM HH:mm", Locale.getDefault())
 
-                for (item in listaExibicao) {
+                for (item in listaExibicao) {{
                     val itemView = LayoutInflater.from(this).inflate(R.layout.item_reposicao, containerLista, false)
 
                     val tvCodigoQtd = itemView.findViewById<TextView>(R.id.tvCodigoQtd)
@@ -524,75 +537,78 @@ jobs:
                     val btnAcao = itemView.findViewById<Button>(R.id.btnAcao)
                     val btnApagar = itemView.findViewById<Button>(R.id.btnApagar)
 
-                    if (item.quantidade > 1) {
-                        tvCodigoQtd.text = "${item.quantidade} cx ${item.codigoMate}"
-                    } else {
+                    if (item.quantidade > 1) {{
+                        tvCodigoQtd.text = "${{item.quantidade}} cx ${{item.codigoMate}}"
+                    }} else {{
                         tvCodigoQtd.text = item.codigoMate
-                    }
+                    }}
 
-                    tvEndereco.text = "${item.rua} — Rack ${item.rack} — Coluna ${item.coluna} — Linha ${item.linha}"
+                    tvEndereco.text = "${{item.rua}} — Rack ${{item.rack}} — Coluna ${{item.coluna}} — Linha ${{item.linha}}"
 
                     val dataStr = sdf.format(Date(item.timestamp))
-                    tvDetalhes.text = "${item.operador} • $dataStr"
+                    tvDetalhes.text = "${{item.operador}} • $dataStr"
 
-                    if (item.concluido) {
+                    if (item.concluido) {{
                         tvStatusBadge.text = "Concluído"
                         tvStatusBadge.setBackgroundColor(Color.parseColor("#E8F5E9"))
                         tvStatusBadge.setTextColor(Color.parseColor("#2E7D32"))
 
                         btnAcao.text = "↩ DESFAZER CONCLUSÃO"
-                        btnAcao.setOnClickListener {
+                        btnAcao.setOnClickListener {{
                             item.concluido = false
                             atualizarInterface()
-                        }
+                        }}
 
                         btnApagar.visibility = View.VISIBLE
-                        btnApagar.setOnClickListener {
+                        btnApagar.setOnClickListener {{
                             listaReposicao.remove(item)
                             Toast.makeText(this, "Registro excluído permanentemente", Toast.LENGTH_SHORT).show()
                             atualizarInterface()
-                        }
-                    } else {
+                        }}
+                    }} else {{
                         tvStatusBadge.text = "Pendente"
                         tvStatusBadge.setBackgroundColor(Color.parseColor("#FFEBEE"))
                         tvStatusBadge.setTextColor(Color.parseColor("#C62828"))
 
                         btnAcao.text = "✓ CONCLUIR"
-                        btnAcao.setOnClickListener {
+                        btnAcao.setOnClickListener {{
                             item.concluido = true
                             atualizarInterface()
-                        }
+                        }}
 
                         btnApagar.visibility = View.GONE
-                    }
+                    }}
 
                     containerLista.addView(itemView)
-                }
-            }
+                }}
+            }}
 
-            private fun abrirSeletorPlanilha() {
-                val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+            private fun abrirSeletorPlanilha() {{
+                val intent = Intent(Intent.ACTION_GET_CONTENT).apply {{
                     type = "*/*"
                     val mimeTypes = arrayOf(
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         "application/vnd.ms-excel"
                     )
                     putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes)
-                }
+                }}
                 startActivityForResult(Intent.createChooser(intent, "Selecione a nova planilha de endereços (.xlsx)"), REQUEST_PICK_XLSX)
-            }
+            }}
 
-            override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+            override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {{
                 super.onActivityResult(requestCode, resultCode, data)
-                if (requestCode == REQUEST_PICK_XLSX && resultCode == Activity.RESULT_OK) {
+                if (requestCode == REQUEST_PICK_XLSX && resultCode == Activity.RESULT_OK) {{
                     val uri: Uri? = data?.data
-                    if (uri != null) {
+                    if (uri != null) {{
                         Toast.makeText(this, "Planilha de endereços selecionada e atualizada com sucesso!", Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
-        }
-EOF
+                    }}
+                }}
+            }}
+        }}
+        """
+            with open(main_file, "w") as f:
+                f.write(code)
+        '
 
     - name: Build APK
       run: |
