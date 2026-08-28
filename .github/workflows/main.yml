@@ -1,4 +1,4 @@
-bugname: Build Android APK
+name: Build Android APK
 
 on:
   push:
@@ -343,8 +343,8 @@ jobs:
                         <LinearLayout
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
                             android:layout_marginStart="4dp"
+                            android:layout_weight="1"
                             android:background="#FFF59D"
                             android:orientation="vertical"
                             android:padding="10dp"
@@ -662,6 +662,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: app-debug
-        path: app/build/outputs/apk/debug/app-debug.apk
-
         path: app/build/outputs/apk/debug/app-debug.apk
