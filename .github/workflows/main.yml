@@ -19,6 +19,13 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Aceitar Licencas do SDK
+      run: |
+        yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
     - name: Criar Estrutura de Pastas
       run: |
         mkdir -p app/src/main/java/com/separacao/bip
@@ -48,8 +55,8 @@ jobs:
 
         cat << 'EOF' > build.gradle.kts
         plugins {
-            id("com.android.application") version "8.2.2" apply false
-            id("org.jetbrains.kotlin.android") version "1.9.22" apply false
+            id("com.android.application") version "8.1.4" apply false
+            id("org.jetbrains.kotlin.android") version "1.8.22" apply false
         }
         EOF
 
@@ -61,12 +68,12 @@ jobs:
 
         android {
             namespace = "com.separacao.bip"
-            compileSdk = 34
+            compileSdk = 33
 
             defaultConfig {
                 applicationId = "com.separacao.bip"
                 minSdk = 24
-                targetSdk = 34
+                targetSdk = 33
                 versionCode = 1
                 versionName = "1.0"
             }
@@ -81,9 +88,9 @@ jobs:
         }
 
         dependencies {
-            implementation("androidx.core:core-ktx:1.12.0")
+            implementation("androidx.core:core-ktx:1.10.1")
             implementation("androidx.appcompat:appcompat:1.6.1")
-            implementation("com.google.android.material:material:1.11.0")
+            implementation("com.google.android.material:material:1.9.0")
             implementation("androidx.constraintlayout:constraintlayout:2.1.4")
         }
         EOF
@@ -340,12 +347,12 @@ jobs:
                         <LinearLayout
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
                             android:layout_marginStart="4dp"
+                            android:layout_weight="1"
                             android:background="#FFF59D"
+                            android:gravity="center"
                             android:orientation="vertical"
-                            android:padding="10dp"
-                            android:gravity="center">
+                            android:padding="10dp">
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
@@ -646,11 +653,11 @@ jobs:
         }
         EOF
 
-    - name: Configurar e Executar Gradle Wrapper Oficial
+    - name: Executar Build do APK com Diagnóstico
       run: |
-        gradle wrapper --gradle-version 8.4 --distribution-type bin
+        gradle wrapper --gradle-version 8.1.1 --distribution-type bin
         chmod +x gradlew
-        ./gradlew assembleDebug --no-daemon
+        ./gradlew assembleDebug --stacktrace
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
