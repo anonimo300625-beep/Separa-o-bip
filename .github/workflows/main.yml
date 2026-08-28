@@ -19,13 +19,14 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Criar Projeto Android Limpo
+    - name: Criar Estrutura de Pastas
       run: |
         mkdir -p app/src/main/java/com/separacao/bip
         mkdir -p app/src/main/res/layout
         mkdir -p app/src/main/res/values
 
-        # Gradle Wrapper e Build Scripts
+    - name: Configurar Arquivos de Build
+      run: |
         cat << 'EOF' > settings.gradle.kts
         pluginManagement {
             repositories {
@@ -400,7 +401,7 @@ jobs:
         </LinearLayout>
         EOF
 
-    - name: Gerar MainActivity Kotlin Limpa
+    - name: Gerar MainActivity
       run: |
         cat << 'EOF' > app/src/main/java/com/separacao/bip/MainActivity.kt
         package com.separacao.bip
@@ -645,9 +646,11 @@ jobs:
         }
         EOF
 
-    - name: Compilar APK com Gradle do Sistema
+    - name: Configurar e Executar Gradle Wrapper Oficial
       run: |
-        gradle assembleDebug --no-daemon
+        gradle wrapper --gradle-version 8.4 --distribution-type bin
+        chmod +x gradlew
+        ./gradlew assembleDebug --no-daemon
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
