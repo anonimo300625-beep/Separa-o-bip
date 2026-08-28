@@ -14,7 +14,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Unzip project
-      run: unzip SeparacaoBip_Android_MVP.zip
+      run: unzip -o SeparacaoBip_Android_MVP.zip
 
     - name: Set up Java 17
       uses: actions/setup-java@v5
