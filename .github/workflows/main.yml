@@ -25,15 +25,31 @@ jobs:
     - name: Accept Android Licenses
       run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-    - name: Build APK com Stacktrace
+    - name: Capturar Causa Exata do Erro
       run: |
         cd SeparacaoBip_Android_MVP
         chmod +x gradlew || true
+        
+        # Executa a compilação e salva o log completo
         if [ -f "./gradlew" ]; then
-          ./gradlew assembleDebug --stacktrace --info --no-daemon
+          ./gradlew assembleDebug --no-daemon > build_log.txt 2>&1 || true
         else
-          gradle assembleDebug --stacktrace --info --no-daemon
+          gradle assembleDebug --no-daemon > build_log.txt 2>&1 || true
         fi
+        
+        echo "=== ERRO ENCONTRADO ==="
+        grep -i -E "e: |error:|Caused by:|FAILURE:" build_log.txt -A 3 -B 1 || cat build_log.txt | tail -n 100
+        
+        # Se falhou, interrompe a pipeline mostrando o log
+        if grep -q "BUILD FAILED" build_log.txt; then
+          exit 1
+        fi
+
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-debug
+        path: SeparacaoBip_Android_MVP/app/build/outputs/apk/debug/app-debug.apk
 
     - name: Upload APK
       if: success()
