@@ -316,14 +316,25 @@ jobs:
         </LinearLayout>
         EOF
 
-    - name: Atualizar MainActivity Kotlin via Base64
+    - name: Atualizar MainActivity Kotlin
       run: |
         MAIN_FILE=$(find SeparacaoBip_Android_MVP -name "MainActivity.kt" | head -n 1)
         PKG_NAME=$(grep "^package " "$MAIN_FILE" | head -n 1)
 
-        echo "cGFja2FnZSBjb20uZXhhbXBsZS5zZXBhcmFjYW9iaXAKCmltcG9ydCBhbmRyb2lkLmFwcC5BY3Rpdml0eQppbXBvcnQgYW5kcm9pZC5jb250ZW50LkludGVudAppbXBvcnQgYW5kcm9pZC5ncmFwaGljcy5Db2xvcgppbXBvcnQgYW5kcm9pZC5uZXQuVXJpCmltcG9ydCBhbmRyb2lkLm9zLkJ1bmRsZQppbXBvcnQgYW5kcm9pZC52aWV3LkxheW91dEluZmxhdG9yCmltcG9ydCBhbmRyb2lkLnZpZXcuVmlldwppbXBvcnQgYW5kcm9pZC53aWRnZXQuQnV0dG9uCmltcG9ydCBhbmRyb2lkLndpZGdldC5FZGl0VGV4dAppbXBvcnQgYW5kcm9pZC53aWRnZXQuSW1hZ2VCdXR0b24KaW1wb3J0IGFuZHJvaWQud2lkZ2V0LkxpbmVhckxheW91dAppbXBvcnQgYW5kcm9pZC53aWRnZXQuVGV4dFZpZXcKaW1wb3J0IGFuZHJvaWQud2lkZ2V0LlRvYXN0CmltcG9ydCBhbnhwcm94eS5hcHBjb21wYXQuYXBwLkFwcENvbXBhdEFjdGl2aXR5Ci8qKi8KaW1wb3J0IGF1eC4qCmRhdGEgY2xhc3MgSXRlbVJlcG9zaWNhbyh2YWwgaWQ6IFN0cmluZywgdmFsIGNvZGlnb01hdGU6IFN0cmluZywgdmFyIHF1YW50aWRhZGU6IEludCwgdmFsIHJ1YTogU3RyaW5nLCB2YWwgcmFjazogU3RyaW5nLCB2YWwgY29sdW5hOiBTdHJpbmcsIHZhbCBsaW5oYTogU3RyaW5nLCB2YWwgb3BlcmFkb3I6IFN0cmluZywgdmFsIHRpbWVzdGFtcDogTG9uZywgdmFyIGNvbmNsdWlkbzogQm9vbGVhbiA9IGZhbHNlKQo=" | base64 -d > /tmp/base_code.kt
-
-        cat << 'EOF' > /tmp/main_code.kt
+        cat << 'EOF' > /tmp/kt_code.txt
+        import android.app.Activity
+        import android.content.Intent
+        import android.graphics.Color
+        import android.net.Uri
+        import android.os.Bundle
+        import android.view.LayoutInflater
+        import android.view.View
+        import android.widget.Button
+        import android.widget.EditText
+        import android.widget.ImageButton
+        import android.widget.LinearLayout
+        import android.widget.TextView
+        import android.widget.Toast
         import androidx.appcompat.app.AppCompatActivity
         import java.text.SimpleDateFormat
         import java.util.Date
@@ -537,29 +548,16 @@ jobs:
         EOF
 
         echo "$PKG_NAME" > "$MAIN_FILE"
-        echo "import android.app.Activity" >> "$MAIN_FILE"
-        echo "import android.content.Intent" >> "$MAIN_FILE"
-        echo "import android.graphics.Color" >> "$MAIN_FILE"
-        echo "import android.net.Uri" >> "$MAIN_FILE"
-        echo "import android.os.Bundle" >> "$MAIN_FILE"
-        echo "import android.view.LayoutInflater" >> "$MAIN_FILE"
-        echo "import android.view.View" >> "$MAIN_FILE"
-        echo "import android.widget.Button" >> "$MAIN_FILE"
-        echo "import android.widget.EditText" >> "$MAIN_FILE"
-        echo "import android.widget.ImageButton" >> "$MAIN_FILE"
-        echo "import android.widget.LinearLayout" >> "$MAIN_FILE"
-        echo "import android.widget.TextView" >> "$MAIN_FILE"
-        echo "import android.widget.Toast" >> "$MAIN_FILE"
-        cat /tmp/main_code.kt >> "$MAIN_FILE"
+        cat /tmp/kt_code.txt >> "$MAIN_FILE"
 
     - name: Build APK
       run: |
         cd SeparacaoBip_Android_MVP
         chmod +x gradlew || true
         if [ -f "./gradlew" ]; then
-          ./gradlew assembleDebug -Pkotlin.jvm.target.validation.mode=IGNORE --no-daemon
+          ./gradlew assembleDebug -Pkotlin.jvm.target.validation.mode=IGNORE --warning-mode none --no-daemon
         else
-          gradle assembleDebug -Pkotlin.jvm.target.validation.mode=IGNORE --no-daemon
+          gradle assembleDebug -Pkotlin.jvm.target.validation.mode=IGNORE --warning-mode none --no-daemon
         fi
 
     - name: Upload APK
