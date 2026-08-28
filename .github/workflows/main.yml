@@ -1,4 +1,4 @@
-name: Build Android APK
+bugname: Build Android APK
 
 on:
   push:
@@ -14,17 +14,13 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Java 17
-      uses: actions/setup-java@v5
+      uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
 
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
-
-    - name: Aceitar Licencas do SDK
-      run: |
-        yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
     - name: Criar Estrutura de Pastas
       run: |
@@ -68,12 +64,12 @@ jobs:
 
         android {
             namespace = "com.separacao.bip"
-            compileSdk = 33
+            compileSdk = 34
 
             defaultConfig {
                 applicationId = "com.separacao.bip"
                 minSdk = 24
-                targetSdk = 33
+                targetSdk = 34
                 versionCode = 1
                 versionName = "1.0"
             }
@@ -88,9 +84,9 @@ jobs:
         }
 
         dependencies {
-            implementation("androidx.core:core-ktx:1.10.1")
+            implementation("androidx.core:core-ktx:1.12.0")
             implementation("androidx.appcompat:appcompat:1.6.1")
-            implementation("com.google.android.material:material:1.9.0")
+            implementation("com.google.android.material:material:1.11.0")
             implementation("androidx.constraintlayout:constraintlayout:2.1.4")
         }
         EOF
@@ -347,12 +343,12 @@ jobs:
                         <LinearLayout
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:layout_marginStart="4dp"
                             android:layout_weight="1"
+                            android:layout_marginStart="4dp"
                             android:background="#FFF59D"
-                            android:gravity="center"
                             android:orientation="vertical"
-                            android:padding="10dp">
+                            android:padding="10dp"
+                            android:gravity="center">
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
@@ -653,14 +649,19 @@ jobs:
         }
         EOF
 
-    - name: Executar Build do APK com Diagnóstico
+    - name: Configurar Gradle
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: '8.1.1'
+
+    - name: Compilar APK
       run: |
-        gradle wrapper --gradle-version 8.1.1 --distribution-type bin
-        chmod +x gradlew
-        ./gradlew assembleDebug --stacktrace
+        gradle assembleDebug
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: app-debug
+        path: app/build/outputs/apk/debug/app-debug.apk
+
         path: app/build/outputs/apk/debug/app-debug.apk
