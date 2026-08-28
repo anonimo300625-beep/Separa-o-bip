@@ -19,22 +19,19 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
-
-    - name: Setup Gradle 8.5
-      uses: gradle/actions/setup-gradle@v4
-      with:
-        gradle-version: '8.5'
-
-    - name: Criar Estrutura de Pastas
+    - name: Criar Estrutura do Projeto
       run: |
         mkdir -p app/src/main/java/com/separacao/bip
         mkdir -p app/src/main/res/layout
-        mkdir -p app/src/main/res/values
 
-    - name: Configurar Arquivos do Gradle
+    - name: Criar Arquivos Globais do Gradle
       run: |
+        cat << 'EOF' > gradle.properties
+        android.useAndroidX=true
+        android.enableJetifier=true
+        org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+        EOF
+
         cat << 'EOF' > settings.gradle
         pluginManagement {
             repositories {
@@ -61,6 +58,8 @@ jobs:
         }
         EOF
 
+    - name: Configurar App Android
+      run: |
         cat << 'EOF' > app/build.gradle
         plugins {
             id 'com.android.application'
@@ -91,8 +90,6 @@ jobs:
         dependencies {
             implementation 'androidx.core:core-ktx:1.12.0'
             implementation 'androidx.appcompat:appcompat:1.6.1'
-            implementation 'com.google.android.material:material:1.11.0'
-            implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
         }
         EOF
 
@@ -185,7 +182,6 @@ jobs:
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textSize="12sp"
-                    android:backgroundTint="#E0E0E0"
                     android:textColor="#212121" />
                 <Button
                     android:id="@+id/btnApagar"
@@ -194,7 +190,6 @@ jobs:
                     android:layout_marginStart="8dp"
                     android:text="🗑 EXCLUIR"
                     android:textSize="12sp"
-                    android:backgroundTint="#FFCDD2"
                     android:textColor="#C62828"
                     android:visibility="gone" />
             </LinearLayout>
@@ -258,7 +253,6 @@ jobs:
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
                         android:text="IDENTIFICAR ESTE APARELHO"
-                        android:backgroundTint="#E0E0E0"
                         android:textColor="#212121" />
 
                     <EditText
@@ -277,7 +271,6 @@ jobs:
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
                         android:text="PROCESSAR CÓDIGO"
-                        android:backgroundTint="#E0E0E0"
                         android:textColor="#212121" />
 
                     <TextView
@@ -389,7 +382,6 @@ jobs:
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="PENDENTES"
-                            android:backgroundTint="#1E88E5"
                             android:textColor="#FFFFFF" />
                         <Button
                             android:id="@+id/btnTabConcluidos"
@@ -398,7 +390,6 @@ jobs:
                             android:layout_weight="1"
                             android:layout_marginStart="4dp"
                             android:text="CONCLUÍDOS"
-                            android:backgroundTint="#E0E0E0"
                             android:textColor="#424242" />
                     </LinearLayout>
 
@@ -659,9 +650,14 @@ jobs:
         }
         EOF
 
+    - name: Configurar Gradle Wrapper
+      run: |
+        gradle wrapper --gradle-version 8.5
+        chmod +x gradlew
+
     - name: Compilar APK
       run: |
-        gradle assembleDebug --no-daemon
+        ./gradlew assembleDebug --no-daemon
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
