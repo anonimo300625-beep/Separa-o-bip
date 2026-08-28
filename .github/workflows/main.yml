@@ -316,14 +316,27 @@ jobs:
         </LinearLayout>
         EOF
 
-    - name: Sobreescrever MainActivity Kotlin de forma limpa
+    - name: Sobreescrever MainActivity via Python (Sem erros de sintaxe)
       run: |
-        MAIN_FILE=$(find SeparacaoBip_Android_MVP -name "MainActivity.kt" | head -n 1)
-        PKG_NAME=$(grep -m 1 "^package " "$MAIN_FILE")
+        python3 -c '
+        import glob
 
-        cat << EOF > "$MAIN_FILE"
-        $PKG_NAME
+        files = glob.glob("SeparacaoBip_Android_MVP/**/MainActivity.kt", recursive=True)
+        if not files:
+            print("MainActivity.kt não encontrado")
+            exit(1)
 
+        file_path = files[0]
+        with open(file_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        pkg_line = "package com.example.separacaobip\n"
+        for l in lines:
+            if l.startswith("package "):
+                pkg_line = l
+                break
+
+        code = pkg_line + """
         import android.app.Activity
         import android.content.Intent
         import android.graphics.Color
@@ -403,8 +416,8 @@ jobs:
                 btnProcessarCodigo.setOnClickListener { processarEntrada(etCodigoBarras.text.toString().trim()) }
                 btnIdentificarAparelho.setOnClickListener {
                     nomeOperador = "Operador " + (1..99).random()
-                    tvOperador.text = "Operador: \$nomeOperador"
-                    Toast.makeText(this, "Aparelho identificado como: \$nomeOperador", Toast.LENGTH_SHORT).show()
+                    tvOperador.text = "Operador: " + nomeOperador
+                    Toast.makeText(this, "Aparelho identificado como: " + nomeOperador, Toast.LENGTH_SHORT).show()
                 }
                 btnConfiguracoes.setOnClickListener { abrirSeletorPlanilha() }
 
@@ -429,9 +442,9 @@ jobs:
                 adicionarOuAgruparItem("55968")
                 adicionarOuAgruparItem("47950")
                 val itemC1 = adicionarOuAgruparItem("48303")
-                itemC1?.concluido = true
+                if (itemC1 != null) itemC1.concluido = true
                 val itemC2 = adicionarOuAgruparItem("48303")
-                itemC2?.concluido = true
+                if (itemC2 != null) itemC2.concluido = true
                 atualizarInterface()
             }
 
@@ -452,9 +465,9 @@ jobs:
                 val mate = extrairCodigoMate(entrada)
                 val item = adicionarOuAgruparItem(mate)
                 if (item != null) {
-                    val endStr = "\${item.rua} / Rack \${item.rack} / Coluna \${item.coluna} / Linha \${item.linha}"
+                    val endStr = item.rua + " / Rack " + item.rack + " / Coluna " + item.coluna + " / Linha " + item.linha
                     tvFeedbackAdicionado.visibility = View.VISIBLE
-                    tvFeedbackAdicionado.text = "✅ \${item.codigoMate} adicionado — \$endStr"
+                    tvFeedbackAdicionado.text = "✅ " + item.codigoMate + " adicionado — " + endStr
                 }
                 etCodigoBarras.setText("")
                 atualizarInterface()
@@ -505,13 +518,13 @@ jobs:
                     val btnApagar = itemView.findViewById<Button>(R.id.btnApagar)
 
                     if (item.quantidade > 1) {
-                        tvCodigoQtd.text = "\${item.quantidade} cx \${item.codigoMate}"
+                        tvCodigoQtd.text = item.quantidade.toString() + " cx " + item.codigoMate
                     } else {
                         tvCodigoQtd.text = item.codigoMate
                     }
-                    tvEndereco.text = "\${item.rua} — Rack \${item.rack} — Coluna \${item.coluna} — Linha \${item.linha}"
+                    tvEndereco.text = item.rua + " — Rack " + item.rack + " — Coluna " + item.coluna + " — Linha " + item.linha
                     val dataStr = sdf.format(Date(item.timestamp))
-                    tvDetalhes.text = "\${item.operador} • \$dataStr"
+                    tvDetalhes.text = item.operador + " • " + dataStr
 
                     if (item.concluido) {
                         tvStatusBadge.text = "Concluído"
@@ -562,7 +575,13 @@ jobs:
                 }
             }
         }
-        EOF
+        """
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(code)
+
+        print("MainActivity.kt substituído com sucesso!")
+        '
 
     - name: Build APK
       run: |
