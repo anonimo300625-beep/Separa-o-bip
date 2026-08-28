@@ -299,7 +299,8 @@ jobs:
         </LinearLayout>
         EOF
 
-        find SeparacaoBip_Android_MVP -name "MainActivity.kt" -exec bash -c 'cat << "EOF" > "$1"
+        MAIN_FILE=$(find SeparacaoBip_Android_MVP -name "MainActivity.kt" | head -n 1)
+        cat << 'EOF' > "$MAIN_FILE"
         package com.exemplo.separacaobip
 
         import android.app.Activity
@@ -563,7 +564,7 @@ jobs:
                 }
             }
         }
-        EOF' -- {} +
+        EOF
 
     - name: Build APK
       run: |
