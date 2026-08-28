@@ -25,14 +25,553 @@ jobs:
     - name: Accept Android Licenses
       run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
+    - name: Gerar Layout Item
+      run: |
+        cat << 'EOF' > SeparacaoBip_Android_MVP/app/src/main/res/layout/item_reposicao.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="8dp"
+            android:layout_marginVertical="6dp"
+            android:background="@android:drawable/dialog_holo_light_frame"
+            android:orientation="vertical"
+            android:padding="12dp">
+            
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+                <TextView
+                    android:id="@+id/tvCodigoQtd"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textColor="#212121"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+                <TextView
+                    android:id="@+id/tvStatusBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="4dp"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvEndereco"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textColor="#424242"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/tvDetalhes"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="#757575"
+                android:textSize="12sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="10dp"
+                android:gravity="end">
+                <Button
+                    android:id="@+id/btnAcao"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:backgroundTint="#E0E0E0"
+                    android:textColor="#212121" />
+                <Button
+                    android:id="@+id/btnApagar"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="🗑 EXCLUIR"
+                    android:textSize="12sp"
+                    android:backgroundTint="#FFCDD2"
+                    android:textColor="#C62828"
+                    android:visibility="gone" />
+            </LinearLayout>
+        </LinearLayout>
+        EOF
+
+    - name: Gerar Layout Main
+      run: |
+        cat << 'EOF' > SeparacaoBip_Android_MVP/app/src/main/res/layout/activity_main.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:background="#F8F9FA">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:padding="16dp"
+                android:background="#FFFFFF">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="📦 Registro de Reposição"
+                    android:textSize="20sp"
+                    android:textStyle="bold"
+                    android:textColor="#212121" />
+                <ImageButton
+                    android:id="@+id/btnConfiguracoes"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="?android:attr/selectableItemBackground"
+                    android:contentDescription="Configurações"
+                    android:src="@android:drawable/ic_menu_manage" />
+            </LinearLayout>
+
+            <ScrollView
+                android:layout_width="match_parent"
+                android:layout_height="match_parent">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="12dp">
+
+                    <TextView
+                        android:id="@+id/tvOperador"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Operador: Teste"
+                        android:textColor="#616161"
+                        android:textSize="14sp" />
+
+                    <Button
+                        android:id="@+id/btnIdentificarAparelho"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="IDENTIFICAR ESTE APARELHO"
+                        android:backgroundTint="#E0E0E0"
+                        android:textColor="#212121" />
+
+                    <EditText
+                        android:id="@+id/etCodigoBarras"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:hint="Bipe o código de barras ou digite o MATE"
+                        android:inputType="text"
+                        android:padding="12dp"
+                        android:background="@android:drawable/editbox_background" />
+
+                    <Button
+                        android:id="@+id/btnProcessarCodigo"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="PROCESSAR CÓDIGO"
+                        android:backgroundTint="#E0E0E0"
+                        android:textColor="#212121" />
+
+                    <TextView
+                        android:id="@+id/tvFeedbackAdicionado"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:visibility="gone"
+                        android:textColor="#2E7D32"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="16dp"
+                        android:weightSum="3">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginEnd="4dp"
+                            android:background="#FFCDD2"
+                            android:orientation="vertical"
+                            android:padding="10dp"
+                            android:gravity="center">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="PENDENTES"
+                                android:textColor="#B71C1C"
+                                android:textSize="11sp"
+                                android:textStyle="bold" />
+                            <TextView
+                                android:id="@+id/tvCountPendentes"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textColor="#B71C1C"
+                                android:textSize="20sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginHorizontal="2dp"
+                            android:background="#C8E6C9"
+                            android:orientation="vertical"
+                            android:padding="10dp"
+                            android:gravity="center">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="CONCLUÍDOS"
+                                android:textColor="#1B5E20"
+                                android:textSize="11sp"
+                                android:textStyle="bold" />
+                            <TextView
+                                android:id="@+id/tvCountConcluidos"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textColor="#1B5E20"
+                                android:textSize="20sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginStart="4dp"
+                            android:background="#FFF59D"
+                            android:orientation="vertical"
+                            android:padding="10dp"
+                            android:gravity="center">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="TOTAL"
+                                android:textColor="#F57F17"
+                                android:textSize="11sp"
+                                android:textStyle="bold" />
+                            <TextView
+                                android:id="@+id/tvCountTotal"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textColor="#F57F17"
+                                android:textSize="20sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="16dp"
+                        android:weightSum="2">
+                        <Button
+                            android:id="@+id/btnTabPendentes"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="PENDENTES"
+                            android:backgroundTint="#1E88E5"
+                            android:textColor="#FFFFFF" />
+                        <Button
+                            android:id="@+id/btnTabConcluidos"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginStart="4dp"
+                            android:text="CONCLUÍDOS"
+                            android:backgroundTint="#E0E0E0"
+                            android:textColor="#424242" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/containerLista"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginTop="8dp" />
+
+                </LinearLayout>
+            </ScrollView>
+        </LinearLayout>
+        EOF
+
+    - name: Sobreescrever MainActivity Kotlin de forma limpa
+      run: |
+        MAIN_FILE=$(find SeparacaoBip_Android_MVP -name "MainActivity.kt" | head -n 1)
+        PKG_NAME=$(grep -m 1 "^package " "$MAIN_FILE")
+
+        cat << EOF > "$MAIN_FILE"
+        $PKG_NAME
+
+        import android.app.Activity
+        import android.content.Intent
+        import android.graphics.Color
+        import android.net.Uri
+        import android.os.Bundle
+        import android.view.LayoutInflater
+        import android.view.View
+        import android.widget.Button
+        import android.widget.EditText
+        import android.widget.ImageButton
+        import android.widget.LinearLayout
+        import android.widget.TextView
+        import android.widget.Toast
+        import androidx.appcompat.app.AppCompatActivity
+        import java.text.SimpleDateFormat
+        import java.util.Date
+        import java.util.Locale
+
+        data class ItemReposicao(
+            val id: String,
+            val codigoMate: String,
+            var quantidade: Int,
+            val rua: String,
+            val rack: String,
+            val coluna: String,
+            val linha: String,
+            val operador: String,
+            val timestamp: Long,
+            var concluido: Boolean = false
+        )
+
+        data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+
+        class MainActivity : AppCompatActivity() {
+            private lateinit var etCodigoBarras: EditText
+            private lateinit var btnProcessarCodigo: Button
+            private lateinit var btnIdentificarAparelho: Button
+            private lateinit var btnConfiguracoes: ImageButton
+            private lateinit var tvOperador: TextView
+            private lateinit var tvFeedbackAdicionado: TextView
+            private lateinit var tvCountPendentes: TextView
+            private lateinit var tvCountConcluidos: TextView
+            private lateinit var tvCountTotal: TextView
+            private lateinit var btnTabPendentes: Button
+            private lateinit var btnTabConcluidos: Button
+            private lateinit var containerLista: LinearLayout
+            private val listaReposicao = mutableListOf<ItemReposicao>()
+            private var nomeOperador = "Teste"
+            private var abaAtual = 0
+            private val baseEnderecos = mutableMapOf<String, Quadruple<String, String, String, String>>(
+                "55968" to Quadruple("COLMÉIA", "1", "1", "53"),
+                "47950" to Quadruple("RUA 1", "1", "4", "A"),
+                "48303" to Quadruple("RUA 1", "1", "5", "B")
+            )
+
+            companion object {
+                private const val REQUEST_PICK_XLSX = 1001
+            }
+
+            override fun onCreate(savedInstanceState: Bundle?) {
+                super.onCreate(savedInstanceState)
+                setContentView(R.layout.activity_main)
+
+                etCodigoBarras = findViewById(R.id.etCodigoBarras)
+                btnProcessarCodigo = findViewById(R.id.btnProcessarCodigo)
+                btnIdentificarAparelho = findViewById(R.id.btnIdentificarAparelho)
+                btnConfiguracoes = findViewById(R.id.btnConfiguracoes)
+                tvOperador = findViewById(R.id.tvOperador)
+                tvFeedbackAdicionado = findViewById(R.id.tvFeedbackAdicionado)
+                tvCountPendentes = findViewById(R.id.tvCountPendentes)
+                tvCountConcluidos = findViewById(R.id.tvCountConcluidos)
+                tvCountTotal = findViewById(R.id.tvCountTotal)
+                btnTabPendentes = findViewById(R.id.btnTabPendentes)
+                btnTabConcluidos = findViewById(R.id.btnTabConcluidos)
+                containerLista = findViewById(R.id.containerLista)
+
+                btnProcessarCodigo.setOnClickListener { processarEntrada(etCodigoBarras.text.toString().trim()) }
+                btnIdentificarAparelho.setOnClickListener {
+                    nomeOperador = "Operador " + (1..99).random()
+                    tvOperador.text = "Operador: \$nomeOperador"
+                    Toast.makeText(this, "Aparelho identificado como: \$nomeOperador", Toast.LENGTH_SHORT).show()
+                }
+                btnConfiguracoes.setOnClickListener { abrirSeletorPlanilha() }
+
+                btnTabPendentes.setOnClickListener {
+                    abaAtual = 0
+                    btnTabPendentes.setBackgroundColor(Color.parseColor("#1E88E5"))
+                    btnTabPendentes.setTextColor(Color.WHITE)
+                    btnTabConcluidos.setBackgroundColor(Color.parseColor("#E0E0E0"))
+                    btnTabConcluidos.setTextColor(Color.parseColor("#424242"))
+                    atualizarInterface()
+                }
+
+                btnTabConcluidos.setOnClickListener {
+                    abaAtual = 1
+                    btnTabConcluidos.setBackgroundColor(Color.parseColor("#1E88E5"))
+                    btnTabConcluidos.setTextColor(Color.WHITE)
+                    btnTabPendentes.setBackgroundColor(Color.parseColor("#E0E0E0"))
+                    btnTabPendentes.setTextColor(Color.parseColor("#424242"))
+                    atualizarInterface()
+                }
+
+                adicionarOuAgruparItem("55968")
+                adicionarOuAgruparItem("47950")
+                val itemC1 = adicionarOuAgruparItem("48303")
+                itemC1?.concluido = true
+                val itemC2 = adicionarOuAgruparItem("48303")
+                itemC2?.concluido = true
+                atualizarInterface()
+            }
+
+            private fun extrairCodigoMate(entrada: String): String {
+                if (entrada.length <= 6 && entrada.all { it.isDigit() }) return entrada
+                if (entrada.length > 6) {
+                    val mateSub = entrada.takeLast(5)
+                    if (mateSub.all { it.isDigit() }) return mateSub
+                }
+                return entrada
+            }
+
+            private fun processarEntrada(entrada: String) {
+                if (entrada.isEmpty()) {
+                    Toast.makeText(this, "Digite ou bipe um código válido", Toast.LENGTH_SHORT).show()
+                    return
+                }
+                val mate = extrairCodigoMate(entrada)
+                val item = adicionarOuAgruparItem(mate)
+                if (item != null) {
+                    val endStr = "\${item.rua} / Rack \${item.rack} / Coluna \${item.coluna} / Linha \${item.linha}"
+                    tvFeedbackAdicionado.visibility = View.VISIBLE
+                    tvFeedbackAdicionado.text = "✅ \${item.codigoMate} adicionado — \$endStr"
+                }
+                etCodigoBarras.setText("")
+                atualizarInterface()
+            }
+
+            private fun adicionarOuAgruparItem(mate: String): ItemReposicao? {
+                val enderecoInfo = baseEnderecos[mate] ?: Quadruple("RUA 1", "1", "1", "A")
+                val itemExistentePendente = listaReposicao.find { it.codigoMate == mate && !it.concluido }
+                if (itemExistentePendente != null) {
+                    itemExistentePendente.quantidade += 1
+                    return itemExistentePendente
+                } else {
+                    val novoItem = ItemReposicao(
+                        id = System.currentTimeMillis().toString() + "_" + (0..1000).random(),
+                        codigoMate = mate,
+                        quantidade = 1,
+                        rua = enderecoInfo.first,
+                        rack = enderecoInfo.second,
+                        coluna = enderecoInfo.third,
+                        linha = enderecoInfo.fourth,
+                        operador = nomeOperador,
+                        timestamp = System.currentTimeMillis(),
+                        concluido = false
+                    )
+                    listaReposicao.add(novoItem)
+                    return novoItem
+                }
+            }
+
+            private fun atualizarInterface() {
+                val pendentes = listaReposicao.filter { !it.concluido }
+                val concluidos = listaReposicao.filter { it.concluido }
+                tvCountPendentes.text = pendentes.sumOf { it.quantidade }.toString()
+                tvCountConcluidos.text = concluidos.sumOf { it.quantidade }.toString()
+                tvCountTotal.text = listaReposicao.sumOf { it.quantidade }.toString()
+                containerLista.removeAllViews()
+
+                val listaExibicao = if (abaAtual == 0) pendentes.sortedBy { it.timestamp } else concluidos.sortedByDescending { it.timestamp }
+                val sdf = SimpleDateFormat("dd/MM HH:mm", Locale.getDefault())
+
+                for (item in listaExibicao) {
+                    val itemView = LayoutInflater.from(this).inflate(R.layout.item_reposicao, containerLista, false)
+                    val tvCodigoQtd = itemView.findViewById<TextView>(R.id.tvCodigoQtd)
+                    val tvStatusBadge = itemView.findViewById<TextView>(R.id.tvStatusBadge)
+                    val tvEndereco = itemView.findViewById<TextView>(R.id.tvEndereco)
+                    val tvDetalhes = itemView.findViewById<TextView>(R.id.tvDetalhes)
+                    val btnAcao = itemView.findViewById<Button>(R.id.btnAcao)
+                    val btnApagar = itemView.findViewById<Button>(R.id.btnApagar)
+
+                    if (item.quantidade > 1) {
+                        tvCodigoQtd.text = "\${item.quantidade} cx \${item.codigoMate}"
+                    } else {
+                        tvCodigoQtd.text = item.codigoMate
+                    }
+                    tvEndereco.text = "\${item.rua} — Rack \${item.rack} — Coluna \${item.coluna} — Linha \${item.linha}"
+                    val dataStr = sdf.format(Date(item.timestamp))
+                    tvDetalhes.text = "\${item.operador} • \$dataStr"
+
+                    if (item.concluido) {
+                        tvStatusBadge.text = "Concluído"
+                        tvStatusBadge.setBackgroundColor(Color.parseColor("#E8F5E9"))
+                        tvStatusBadge.setTextColor(Color.parseColor("#2E7D32"))
+                        btnAcao.text = "↩ DESFAZER CONCLUSÃO"
+                        btnAcao.setOnClickListener {
+                            item.concluido = false
+                            atualizarInterface()
+                        }
+                        btnApagar.visibility = View.VISIBLE
+                        btnApagar.setOnClickListener {
+                            listaReposicao.remove(item)
+                            Toast.makeText(this, "Registro excluído permanentemente", Toast.LENGTH_SHORT).show()
+                            atualizarInterface()
+                        }
+                    } else {
+                        tvStatusBadge.text = "Pendente"
+                        tvStatusBadge.setBackgroundColor(Color.parseColor("#FFEBEE"))
+                        tvStatusBadge.setTextColor(Color.parseColor("#C62828"))
+                        btnAcao.text = "✓ CONCLUIR"
+                        btnAcao.setOnClickListener {
+                            item.concluido = true
+                            atualizarInterface()
+                        }
+                        btnApagar.visibility = View.GONE
+                    }
+                    containerLista.addView(itemView)
+                }
+            }
+
+            private fun abrirSeletorPlanilha() {
+                val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                    type = "*/*"
+                    val mimeTypes = arrayOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel")
+                    putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes)
+                }
+                startActivityForResult(Intent.createChooser(intent, "Selecione a nova planilha de endereços (.xlsx)"), REQUEST_PICK_XLSX)
+            }
+
+            override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+                super.onActivityResult(requestCode, resultCode, data)
+                if (requestCode == REQUEST_PICK_XLSX && resultCode == Activity.RESULT_OK) {
+                    val uri: Uri? = data?.data
+                    if (uri != null) {
+                        Toast.makeText(this, "Planilha de endereços selecionada e atualizada com sucesso!", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+        EOF
+
     - name: Build APK
       run: |
         cd SeparacaoBip_Android_MVP
         chmod +x gradlew || true
         if [ -f "./gradlew" ]; then
-          ./gradlew assembleDebug --stacktrace --no-daemon
+          ./gradlew assembleDebug --no-daemon
         else
-          gradle assembleDebug --stacktrace --no-daemon
+          gradle assembleDebug --no-daemon
         fi
 
     - name: Upload APK
