@@ -318,297 +318,164 @@ jobs:
 
     - name: Atualizar MainActivity Kotlin
       run: |
-        python3 -c '
-        import glob
+        MAIN_FILE=$(find SeparacaoBip_Android_MVP -name "MainActivity.kt" | head -n 1)
+        PKG_NAME=$(grep "^package " "$MAIN_FILE" | head -n 1)
 
-        files = glob.glob("SeparacaoBip_Android_MVP/**/MainActivity.kt", recursive=True)
-        if files:
-            main_file = files[0]
-            pkg = "package com.exemplo.separacaobip"
-            with open(main_file, "r") as f:
-                for line in f:
-                    if line.startswith("package "):
-                        pkg = line.strip()
-                        break
+        echo "import android.app.Activity" > code.kt
+        echo "import android.content.Intent" >> code.kt
+        echo "import android.graphics.Color" >> code.kt
+        echo "import android.net.Uri" >> code.kt
+        echo "import android.os.Bundle" >> code.kt
+        echo "import android.view.LayoutInflater" >> code.kt
+        echo "import android.view.View" >> code.kt
+        echo "import android.widget.Button" >> code.kt
+        echo "import android.widget.EditText" >> code.kt
+        echo "import android.widget.ImageButton" >> code.kt
+        echo "import android.widget.LinearLayout" >> code.kt
+        echo "import android.widget.TextView" >> code.kt
+        echo "import android.widget.Toast" >> code.kt
+        echo "import androidx.appcompat.app.AppCompatActivity" >> code.kt
+        echo "import java.text.SimpleDateFormat" >> code.kt
+        echo "import java.util.Date" >> code.kt
+        echo "import java.util.Locale" >> code.kt
+        echo "" >> code.kt
+        echo 'data class ItemReposicao(val id: String, val codigoMate: String, var quantidade: Int, val rua: String, val rack: String, val coluna: String, val linha: String, val operador: String, val timestamp: Long, var concluido: Boolean = false)' >> code.kt
+        echo "" >> code.kt
+        echo "class MainActivity : AppCompatActivity() {" >> code.kt
+        echo "    private lateinit var etCodigoBarras: EditText" >> code.kt
+        echo "    private lateinit var btnProcessarCodigo: Button" >> code.kt
+        echo "    private lateinit var btnIdentificarAparelho: Button" >> code.kt
+        echo "    private lateinit var btnConfiguracoes: ImageButton" >> code.kt
+        echo "    private lateinit var tvOperador: TextView" >> code.kt
+        echo "    private lateinit var tvFeedbackAdicionado: TextView" >> code.kt
+        echo "    private lateinit var tvCountPendentes: TextView" >> code.kt
+        echo "    private lateinit var tvCountConcluidos: TextView" >> code.kt
+        echo "    private lateinit var tvCountTotal: TextView" >> code.kt
+        echo "    private lateinit var btnTabPendentes: Button" >> code.kt
+        echo "    private lateinit var btnTabConcluidos: Button" >> code.kt
+        echo "    private lateinit var containerLista: LinearLayout" >> code.kt
+        echo "    private val listaReposicao = mutableListOf<ItemReposicao>()" >> code.kt
+        echo '    private var nomeOperador = "Teste"' >> code.kt
+        echo "    private var abaAtual = 0" >> code.kt
+        echo '    private val baseEnderecos = mutableMapOf<String, Quadruple<String, String, String, String>>("55968" to Quadruple("COLMÉIA", "1", "1", "53"), "47950" to Quadruple("RUA 1", "1", "4", "A"), "48303" to Quadruple("RUA 1", "1", "5", "B"))' >> code.kt
+        echo "    data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)" >> code.kt
+        echo "    companion object { private const val REQUEST_PICK_XLSX = 1001 }" >> code.kt
+        echo "    override fun onCreate(savedInstanceState: Bundle?) {" >> code.kt
+        echo "        super.onCreate(savedInstanceState)" >> code.kt
+        echo "        setContentView(R.layout.activity_main)" >> code.kt
+        echo "        etCodigoBarras = findViewById(R.id.etCodigoBarras)" >> code.kt
+        echo "        btnProcessarCodigo = findViewById(R.id.btnProcessarCodigo)" >> code.kt
+        echo "        btnIdentificarAparelho = findViewById(R.id.btnIdentificarAparelho)" >> code.kt
+        echo "        btnConfiguracoes = findViewById(R.id.btnConfiguracoes)" >> code.kt
+        echo "        tvOperador = findViewById(R.id.tvOperador)" >> code.kt
+        echo "        tvFeedbackAdicionado = findViewById(R.id.tvFeedbackAdicionado)" >> code.kt
+        echo "        tvCountPendentes = findViewById(R.id.tvCountPendentes)" >> code.kt
+        echo "        tvCountConcluidos = findViewById(R.id.tvCountConcluidos)" >> code.kt
+        echo "        tvCountTotal = findViewById(R.id.tvCountTotal)" >> code.kt
+        echo "        btnTabPendentes = findViewById(R.id.btnTabPendentes)" >> code.kt
+        echo "        btnTabConcluidos = findViewById(R.id.btnTabConcluidos)" >> code.kt
+        echo "        containerLista = findViewById(R.id.containerLista)" >> code.kt
+        echo "        btnProcessarCodigo.setOnClickListener { processarEntrada(etCodigoBarras.text.toString().trim()) }" >> code.kt
+        echo '        btnIdentificarAparelho.setOnClickListener { nomeOperador = "Operador " + (1..99).random(); tvOperador.text = "Operador: $nomeOperador"; Toast.makeText(this, "Aparelho identificado como: $nomeOperador", Toast.LENGTH_SHORT).show() }' >> code.kt
+        echo "        btnConfiguracoes.setOnClickListener { abrirSeletorPlanilha() }" >> code.kt
+        echo '        btnTabPendentes.setOnClickListener { abaAtual = 0; btnTabPendentes.setBackgroundColor(Color.parseColor("#1E88E5")); btnTabPendentes.setTextColor(Color.WHITE); btnTabConcluidos.setBackgroundColor(Color.parseColor("#E0E0E0")); btnTabConcluidos.setTextColor(Color.parseColor("#424242")); atualizarInterface() }' >> code.kt
+        echo '        btnTabConcluidos.setOnClickListener { abaAtual = 1; btnTabConcluidos.setBackgroundColor(Color.parseColor("#1E88E5")); btnTabConcluidos.setTextColor(Color.WHITE); btnTabPendentes.setBackgroundColor(Color.parseColor("#E0E0E0")); btnTabPendentes.setTextColor(Color.parseColor("#424242")); atualizarInterface() }' >> code.kt
+        echo '        adicionarOuAgruparItem("55968")' >> code.kt
+        echo '        adicionarOuAgruparItem("47950")' >> code.kt
+        echo '        val itemC1 = adicionarOuAgruparItem("48303")' >> code.kt
+        echo "        itemC1?.concluido = true" >> code.kt
+        echo '        val itemC2 = adicionarOuAgruparItem("48303")' >> code.kt
+        echo "        itemC2?.concluido = true" >> code.kt
+        echo "        atualizarInterface()" >> code.kt
+        echo "    }" >> code.kt
+        echo "    private fun extrairCodigoMate(entrada: String): String {" >> code.kt
+        echo "        if (entrada.length <= 6 && entrada.all { it.isDigit() }) return entrada" >> code.kt
+        echo "        if (entrada.length > 6) { val mateSub = entrada.takeLast(5); if (mateSub.all { it.isDigit() }) return mateSub }" >> code.kt
+        echo "        return entrada" >> code.kt
+        echo "    }" >> code.kt
+        echo "    private fun processarEntrada(entrada: String) {" >> code.kt
+        echo '        if (entrada.isEmpty()) { Toast.makeText(this, "Digite ou bipe um código válido", Toast.LENGTH_SHORT).show(); return }' >> code.kt
+        echo "        val mate = extrairCodigoMate(entrada)" >> code.kt
+        echo "        val item = adicionarOuAgruparItem(mate)" >> code.kt
+        echo "        if (item != null) {" >> code.kt
+        echo '            val endStr = "${item.rua} / Rack ${item.rack} / Coluna ${item.coluna} / Linha ${item.linha}"' >> code.kt
+        echo "            tvFeedbackAdicionado.visibility = View.VISIBLE" >> code.kt
+        echo '            tvFeedbackAdicionado.text = "✅ ${item.codigoMate} adicionado — $endStr"' >> code.kt
+        echo "        }" >> code.kt
+        echo '        etCodigoBarras.setText("")' >> code.kt
+        echo "        atualizarInterface()" >> code.kt
+        echo "    }" >> code.kt
+        echo "    private fun adicionarOuAgruparItem(mate: String): ItemReposicao? {" >> code.kt
+        echo '        val enderecoInfo = baseEnderecos[mate] ?: Quadruple("RUA 1", "1", "1", "A")' >> code.kt
+        echo "        val itemExistentePendente = listaReposicao.find { it.codigoMate == mate && !it.concluido }" >> code.kt
+        echo "        if (itemExistentePendente != null) {" >> code.kt
+        echo "            itemExistentePendente.quantidade += 1" >> code.kt
+        echo "            return itemExistentePendente" >> code.kt
+        echo "        } else {" >> code.kt
+        echo '            val novoItem = ItemReposicao(id = System.currentTimeMillis().toString() + "_" + (0..1000).random(), codigoMate = mate, quantidade = 1, rua = enderecoInfo.first, rack = enderecoInfo.second, coluna = enderecoInfo.third, linha = enderecoInfo.fourth, operador = nomeOperador, timestamp = System.currentTimeMillis(), concluido = false)' >> code.kt
+        echo "            listaReposicao.add(novoItem)" >> code.kt
+        echo "            return novoItem" >> code.kt
+        echo "        }" >> code.kt
+        echo "    }" >> code.kt
+        echo "    private fun atualizarInterface() {" >> code.kt
+        echo "        val pendentes = listaReposicao.filter { !it.concluido }" >> code.kt
+        echo "        val concluidos = listaReposicao.filter { it.concluido }" >> code.kt
+        echo "        tvCountPendentes.text = pendentes.sumOf { it.quantidade }.toString()" >> code.kt
+        echo "        tvCountConcluidos.text = concluidos.sumOf { it.quantidade }.toString()" >> code.kt
+        echo "        tvCountTotal.text = listaReposicao.sumOf { it.quantidade }.toString()" >> code.kt
+        echo "        containerLista.removeAllViews()" >> code.kt
+        echo "        val listaExibicao = if (abaAtual == 0) pendentes.sortedBy { it.timestamp } else concluidos.sortedByDescending { it.timestamp }" >> code.kt
+        echo '        val sdf = SimpleDateFormat("dd/MM HH:mm", Locale.getDefault())' >> code.kt
+        echo "        for (item in listaExibicao) {" >> code.kt
+        echo "            val itemView = LayoutInflater.from(this).inflate(R.layout.item_reposicao, containerLista, false)" >> code.kt
+        echo "            val tvCodigoQtd = itemView.findViewById<TextView>(R.id.tvCodigoQtd)" >> code.kt
+        echo "            val tvStatusBadge = itemView.findViewById<TextView>(R.id.tvStatusBadge)" >> code.kt
+        echo "            val tvEndereco = itemView.findViewById<TextView>(R.id.tvEndereco)" >> code.kt
+        echo "            val tvDetalhes = itemView.findViewById<TextView>(R.id.tvDetalhes)" >> code.kt
+        echo "            val btnAcao = itemView.findViewById<Button>(R.id.btnAcao)" >> code.kt
+        echo "            val btnApagar = itemView.findViewById<Button>(R.id.btnApagar)" >> code.kt
+        echo '            if (item.quantidade > 1) { tvCodigoQtd.text = "${item.quantidade} cx ${item.codigoMate}" } else { tvCodigoQtd.text = item.codigoMate }' >> code.kt
+        echo '            tvEndereco.text = "${item.rua} — Rack ${item.rack} — Coluna ${item.coluna} — Linha ${item.linha}"' >> code.kt
+        echo "            val dataStr = sdf.format(Date(item.timestamp))" >> code.kt
+        echo '            tvDetalhes.text = "${item.operador} • $dataStr"' >> code.kt
+        echo "            if (item.concluido) {" >> code.kt
+        echo '                tvStatusBadge.text = "Concluído"' >> code.kt
+        echo '                tvStatusBadge.setBackgroundColor(Color.parseColor("#E8F5E9"))' >> code.kt
+        echo '                tvStatusBadge.setTextColor(Color.parseColor("#2E7D32"))' >> code.kt
+        echo '                btnAcao.text = "↩ DESFAZER CONCLUSÃO"' >> code.kt
+        echo "                btnAcao.setOnClickListener { item.concluido = false; atualizarInterface() }" >> code.kt
+        echo "                btnApagar.visibility = View.VISIBLE" >> code.kt
+        echo '                btnApagar.setOnClickListener { listaReposicao.remove(item); Toast.makeText(this, "Registro excluído permanentemente", Toast.LENGTH_SHORT).show(); atualizarInterface() }' >> code.kt
+        echo "            } else {" >> code.kt
+        echo '                tvStatusBadge.text = "Pendente"' >> code.kt
+        echo '                tvStatusBadge.setBackgroundColor(Color.parseColor("#FFEBEE"))' >> code.kt
+        echo '                tvStatusBadge.setTextColor(Color.parseColor("#C62828"))' >> code.kt
+        echo '                btnAcao.text = "✓ CONCLUIR"' >> code.kt
+        echo "                btnAcao.setOnClickListener { item.concluido = true; atualizarInterface() }" >> code.kt
+        echo "                btnApagar.visibility = View.GONE" >> code.kt
+        echo "            }" >> code.kt
+        echo "            containerLista.addView(itemView)" >> code.kt
+        echo "        }" >> code.kt
+        echo "    }" >> code.kt
+        echo "    private fun abrirSeletorPlanilha() {" >> code.kt
+        echo "        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {" >> code.kt
+        echo '            type = "*/*"' >> code.kt
+        echo '            val mimeTypes = arrayOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel")' >> code.kt
+        echo "            putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes)" >> code.kt
+        echo "        }" >> code.kt
+        echo '        startActivityForResult(Intent.createChooser(intent, "Selecione a nova planilha de endereços (.xlsx)"), REQUEST_PICK_XLSX)' >> code.kt
+        echo "    }" >> code.kt
+        echo "    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {" >> code.kt
+        echo "        super.onActivityResult(requestCode, resultCode, data)" >> code.kt
+        echo "        if (requestCode == REQUEST_PICK_XLSX && resultCode == Activity.RESULT_OK) {" >> code.kt
+        echo "            val uri: Uri? = data?.data" >> code.kt
+        echo '            if (uri != null) Toast.makeText(this, "Planilha de endereços selecionada e atualizada com sucesso!", Toast.LENGTH_LONG).show()' >> code.kt
+        echo "        }" >> code.kt
+        echo "    }" >> code.kt
+        echo "}" >> code.kt
 
-            code = f"""{pkg}
-
-        import android.app.Activity
-        import android.content.Intent
-        import android.graphics.Color
-        import android.net.Uri
-        import android.os.Bundle
-        import android.view.LayoutInflater
-        import android.view.View
-        import android.widget.Button
-        import android.widget.EditText
-        import android.widget.ImageButton
-        import android.widget.LinearLayout
-        import android.widget.TextView
-        import android.widget.Toast
-        import androidx.appcompat.app.AppCompatActivity
-        import java.text.SimpleDateFormat
-        import java.util.Date
-        import java.util.Locale
-
-        data class ItemReposicao(
-            val id: String,
-            val codigoMate: String,
-            var quantidade: Int,
-            val rua: String,
-            val rack: String,
-            val coluna: String,
-            val linha: String,
-            val operador: String,
-            val timestamp: Long,
-            var concluido: Boolean = false
-        )
-
-        class MainActivity : AppCompatActivity() {{
-
-            private lateinit var etCodigoBarras: EditText
-            private lateinit var btnProcessarCodigo: Button
-            private lateinit var btnIdentificarAparelho: Button
-            private lateinit var btnConfiguracoes: ImageButton
-            private lateinit var tvOperador: TextView
-            private lateinit var tvFeedbackAdicionado: TextView
-            private lateinit var tvCountPendentes: TextView
-            private lateinit var tvCountConcluidos: TextView
-            private lateinit var tvCountTotal: TextView
-            private lateinit var btnTabPendentes: Button
-            private lateinit var btnTabConcluidos: Button
-            private lateinit var containerLista: LinearLayout
-
-            private val listaReposicao = mutableListOf<ItemReposicao>()
-            private var nomeOperador = "Teste"
-            private var abaAtual = 0
-
-            private val baseEnderecos = mutableMapOf<String, Quadruple<String, String, String, String>>(
-                "55968" to Quadruple("COLMÉIA", "1", "1", "53"),
-                "47950" to Quadruple("RUA 1", "1", "4", "A"),
-                "48303" to Quadruple("RUA 1", "1", "5", "B")
-            )
-
-            data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
-
-            companion object {{
-                private const val REQUEST_PICK_XLSX = 1001
-            }}
-
-            override fun onCreate(savedInstanceState: Bundle?) {{
-                super.onCreate(savedInstanceState)
-                setContentView(R.layout.activity_main)
-
-                etCodigoBarras = findViewById(R.id.etCodigoBarras)
-                btnProcessarCodigo = findViewById(R.id.btnProcessarCodigo)
-                btnIdentificarAparelho = findViewById(R.id.btnIdentificarAparelho)
-                btnConfiguracoes = findViewById(R.id.btnConfiguracoes)
-                tvOperador = findViewById(R.id.tvOperador)
-                tvFeedbackAdicionado = findViewById(R.id.tvFeedbackAdicionado)
-                tvCountPendentes = findViewById(R.id.tvCountPendentes)
-                tvCountConcluidos = findViewById(R.id.tvCountConcluidos)
-                tvCountTotal = findViewById(R.id.tvCountTotal)
-                btnTabPendentes = findViewById(R.id.btnTabPendentes)
-                btnTabConcluidos = findViewById(R.id.btnTabConcluidos)
-                containerLista = findViewById(R.id.containerLista)
-
-                btnProcessarCodigo.setOnClickListener {{
-                    processarEntrada(etCodigoBarras.text.toString().trim())
-                }}
-
-                btnIdentificarAparelho.setOnClickListener {{
-                    nomeOperador = "Operador " + (1..99).random()
-                    tvOperador.text = "Operador: $nomeOperador"
-                    Toast.makeText(this, "Aparelho identificado como: $nomeOperador", Toast.LENGTH_SHORT).show()
-                }}
-
-                btnConfiguracoes.setOnClickListener {{
-                    abrirSeletorPlanilha()
-                }}
-
-                btnTabPendentes.setOnClickListener {{
-                    abaAtual = 0
-                    btnTabPendentes.setBackgroundColor(Color.parseColor("#1E88E5"))
-                    btnTabPendentes.setTextColor(Color.WHITE)
-                    btnTabConcluidos.setBackgroundColor(Color.parseColor("#E0E0E0"))
-                    btnTabConcluidos.setTextColor(Color.parseColor("#424242"))
-                    atualizarInterface()
-                }}
-
-                btnTabConcluidos.setOnClickListener {{
-                    abaAtual = 1
-                    btnTabConcluidos.setBackgroundColor(Color.parseColor("#1E88E5"))
-                    btnTabConcluidos.setTextColor(Color.WHITE)
-                    btnTabPendentes.setBackgroundColor(Color.parseColor("#E0E0E0"))
-                    btnTabPendentes.setTextColor(Color.parseColor("#424242"))
-                    atualizarInterface()
-                }}
-
-                adicionarOuAgruparItem("55968")
-                adicionarOuAgruparItem("47950")
-                val itemC1 = adicionarOuAgruparItem("48303")
-                itemC1?.concluido = true
-                val itemC2 = adicionarOuAgruparItem("48303")
-                itemC2?.concluido = true
-
-                atualizarInterface()
-            }}
-
-            private fun extrairCodigoMate(entrada: String): String {{
-                if (entrada.length <= 6 && entrada.all {{ it.isDigit() }}) {{
-                    return entrada
-                }}
-                if (entrada.length > 6) {{
-                    val mateSub = entrada.takeLast(5)
-                    if (mateSub.all {{ it.isDigit() }}) return mateSub
-                }}
-                return entrada
-            }}
-
-            private fun processarEntrada(entrada: String) {{
-                if (entrada.isEmpty()) {{
-                    Toast.makeText(this, "Digite ou bipe um código válido", Toast.LENGTH_SHORT).show()
-                    return
-                }}
-
-                val mate = extrairCodigoMate(entrada)
-                val item = adicionarOuAgruparItem(mate)
-
-                if (item != null) {{
-                    val endStr = "${{item.rua}} / Rack ${{item.rack}} / Coluna ${{item.coluna}} / Linha ${{item.linha}}"
-                    tvFeedbackAdicionado.visibility = View.VISIBLE
-                    tvFeedbackAdicionado.text = "✅ ${{item.codigoMate}} adicionado — $endStr"
-                }}
-
-                etCodigoBarras.setText("")
-                atualizarInterface()
-            }}
-
-            private fun adicionarOuAgruparItem(mate: String): ItemReposicao? {{
-                val enderecoInfo = baseEnderecos[mate] ?: Quadruple("RUA 1", "1", "1", "A")
-                val itemExistentePendente = listaReposicao.find {{ it.codigoMate == mate && !it.concluido }}
-
-                if (itemExistentePendente != null) {{
-                    itemExistentePendente.quantidade += 1
-                    return itemExistentePendente
-                }} else {{
-                    val novoItem = ItemReposicao(
-                        id = System.currentTimeMillis().toString() + "_" + (0..1000).random(),
-                        codigoMate = mate,
-                        quantidade = 1,
-                        rua = enderecoInfo.first,
-                        rack = enderecoInfo.second,
-                        coluna = enderecoInfo.third,
-                        linha = enderecoInfo.fourth,
-                        operador = nomeOperador,
-                        timestamp = System.currentTimeMillis(),
-                        concluido = false
-                    )
-                    listaReposicao.add(novoItem)
-                    return novoItem
-                }}
-            }}
-
-            private fun atualizarInterface() {{
-                val pendentes = listaReposicao.filter {{ !it.concluido }}
-                val concluidos = listaReposicao.filter {{ it.concluido }}
-
-                tvCountPendentes.text = pendentes.sumOf {{ it.quantidade }}.toString()
-                tvCountConcluidos.text = concluidos.sumOf {{ it.quantidade }}.toString()
-                tvCountTotal.text = listaReposicao.sumOf {{ it.quantidade }}.toString()
-
-                containerLista.removeAllViews()
-
-                val listaExibicao = if (abaAtual == 0) {{
-                    pendentes.sortedBy {{ it.timestamp }}
-                }} else {{
-                    concluidos.sortedByDescending {{ it.timestamp }}
-                }}
-
-                val sdf = SimpleDateFormat("dd/MM HH:mm", Locale.getDefault())
-
-                for (item in listaExibicao) {{
-                    val itemView = LayoutInflater.from(this).inflate(R.layout.item_reposicao, containerLista, false)
-
-                    val tvCodigoQtd = itemView.findViewById<TextView>(R.id.tvCodigoQtd)
-                    val tvStatusBadge = itemView.findViewById<TextView>(R.id.tvStatusBadge)
-                    val tvEndereco = itemView.findViewById<TextView>(R.id.tvEndereco)
-                    val tvDetalhes = itemView.findViewById<TextView>(R.id.tvDetalhes)
-                    val btnAcao = itemView.findViewById<Button>(R.id.btnAcao)
-                    val btnApagar = itemView.findViewById<Button>(R.id.btnApagar)
-
-                    if (item.quantidade > 1) {{
-                        tvCodigoQtd.text = "${{item.quantidade}} cx ${{item.codigoMate}}"
-                    }} else {{
-                        tvCodigoQtd.text = item.codigoMate
-                    }}
-
-                    tvEndereco.text = "${{item.rua}} — Rack ${{item.rack}} — Coluna ${{item.coluna}} — Linha ${{item.linha}}"
-
-                    val dataStr = sdf.format(Date(item.timestamp))
-                    tvDetalhes.text = "${{item.operador}} • $dataStr"
-
-                    if (item.concluido) {{
-                        tvStatusBadge.text = "Concluído"
-                        tvStatusBadge.setBackgroundColor(Color.parseColor("#E8F5E9"))
-                        tvStatusBadge.setTextColor(Color.parseColor("#2E7D32"))
-
-                        btnAcao.text = "↩ DESFAZER CONCLUSÃO"
-                        btnAcao.setOnClickListener {{
-                            item.concluido = false
-                            atualizarInterface()
-                        }}
-
-                        btnApagar.visibility = View.VISIBLE
-                        btnApagar.setOnClickListener {{
-                            listaReposicao.remove(item)
-                            Toast.makeText(this, "Registro excluído permanentemente", Toast.LENGTH_SHORT).show()
-                            atualizarInterface()
-                        }}
-                    }} else {{
-                        tvStatusBadge.text = "Pendente"
-                        tvStatusBadge.setBackgroundColor(Color.parseColor("#FFEBEE"))
-                        tvStatusBadge.setTextColor(Color.parseColor("#C62828"))
-
-                        btnAcao.text = "✓ CONCLUIR"
-                        btnAcao.setOnClickListener {{
-                            item.concluido = true
-                            atualizarInterface()
-                        }}
-
-                        btnApagar.visibility = View.GONE
-                    }}
-
-                    containerLista.addView(itemView)
-                }}
-            }}
-
-            private fun abrirSeletorPlanilha() {{
-                val intent = Intent(Intent.ACTION_GET_CONTENT).apply {{
-                    type = "*/*"
-                    val mimeTypes = arrayOf(
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        "application/vnd.ms-excel"
-                    )
-                    putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes)
-                }}
-                startActivityForResult(Intent.createChooser(intent, "Selecione a nova planilha de endereços (.xlsx)"), REQUEST_PICK_XLSX)
-            }}
-
-            override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {{
-                super.onActivityResult(requestCode, resultCode, data)
-                if (requestCode == REQUEST_PICK_XLSX && resultCode == Activity.RESULT_OK) {{
-                    val uri: Uri? = data?.data
-                    if (uri != null) {{
-                        Toast.makeText(this, "Planilha de endereços selecionada e atualizada com sucesso!", Toast.LENGTH_LONG).show()
-                    }}
-                }}
-            }}
-        }}
-        """
-            with open(main_file, "w") as f:
-                f.write(code)
-        '
+        echo "$PKG_NAME" > "$MAIN_FILE"
+        cat code.kt >> "$MAIN_FILE"
 
     - name: Build APK
       run: |
