@@ -91,8 +91,8 @@ jobs:
                   applicationId "com.separacao.bip"
                   minSdk 24
                   targetSdk 34
-                  versionCode 8
-                  versionName "8.0"
+                  versionCode 9
+                  versionName "9.0"
               }
 
               compileOptions {
@@ -1549,26 +1549,6 @@ jobs:
                   }
               }
 
-              private fun produtoAtual(
-                  codigo: String,
-                  fallbackDescricao: String = "",
-                  fallbackRua: String = "",
-                  fallbackRack: String = "",
-                  fallbackColuna: String = "",
-                  fallbackLinha: String = ""
-              ): EnderecoProduto {
-
-                  return baseProdutos[codigo]
-                      ?: EnderecoProduto(
-                          codigo,
-                          fallbackDescricao,
-                          fallbackRua,
-                          fallbackRack,
-                          fallbackColuna,
-                          fallbackLinha
-                      )
-              }
-
               // =========================================================
               // CONSULTAS
               // =========================================================
@@ -2213,11 +2193,11 @@ jobs:
 
                       if (item.concluido) {
 
-                          confirmarReabrir(item)
+                          reabrirReposicao(item)
 
                       } else {
 
-                          confirmarConclusao(item)
+                          concluirReposicao(item)
                       }
                   }
 
@@ -2229,82 +2209,48 @@ jobs:
                   containerLista.addView(card)
               }
 
-              private fun confirmarConclusao(
+              private fun concluirReposicao(
                   item: ItemReposicao
               ) {
 
-                  AlertDialog.Builder(this)
-                      .setTitle("Concluir reposição?")
-                      .setMessage(
-                          "Confirmar que ${item.quantidade} caixa(s) do produto " +
-                          "${item.codigo} foram repostas?"
-                      )
-                      .setNegativeButton(
-                          "CANCELAR",
-                          null
-                      )
-                      .setPositiveButton(
-                          "CONCLUÍR"
-                      ) { _, _ ->
+                  item.concluido = true
 
-                          item.concluido =
-                              true
+                  salvarRegistros()
 
-                          salvarRegistros()
+                  tvFeedback.text =
+                      "✓ Reposição do produto ${item.codigo} concluída."
 
-                          tvFeedback.text =
-                              "✓ Reposição do produto ${item.codigo} concluída."
+                  tvFeedback.setTextColor(
+                      Color.parseColor("#1B5E20")
+                  )
 
-                          tvFeedback.setTextColor(
-                              Color.parseColor("#1B5E20")
-                          )
+                  tvFeedback.setBackgroundColor(
+                      Color.parseColor("#C8E6C9")
+                  )
 
-                          tvFeedback.setBackgroundColor(
-                              Color.parseColor("#C8E6C9")
-                          )
+                  tvFeedback.visibility =
+                      View.VISIBLE
 
-                          tvFeedback.visibility =
-                              View.VISIBLE
-
-                          atualizarInterface()
-                      }
-                      .show()
+                  atualizarInterface()
               }
 
-              private fun confirmarReabrir(
+              private fun reabrirReposicao(
                   item: ItemReposicao
               ) {
 
-                  AlertDialog.Builder(this)
-                      .setTitle("Reabrir reposição?")
-                      .setMessage(
-                          "O produto ${item.codigo} voltará para a lista de pendentes."
-                      )
-                      .setNegativeButton(
-                          "CANCELAR",
-                          null
-                      )
-                      .setPositiveButton(
-                          "REABRIR"
-                      ) { _, _ ->
+                  item.concluido = false
 
-                          item.concluido =
-                              false
+                  salvarRegistros()
 
-                          salvarRegistros()
+                  tvFeedback.text =
+                      "↻ Produto ${item.codigo} voltou para pendentes."
 
-                          tvFeedback.text =
-                              "↻ Produto ${item.codigo} voltou para pendentes."
+                  tvFeedback.visibility =
+                      View.VISIBLE
 
-                          tvFeedback.visibility =
-                              View.VISIBLE
+                  abaConcluidos = false
 
-                          abaConcluidos =
-                              false
-
-                          atualizarInterface()
-                      }
-                      .show()
+                  atualizarInterface()
               }
 
               private fun confirmarExcluir(
@@ -2347,21 +2293,18 @@ jobs:
                   rua: String
               ): String {
 
-                  if (rua.isBlank()) {
+                  val limpa = rua.trim()
 
+                  if (limpa.isBlank()) {
                       return "Rua não informada"
                   }
 
-                  return if (
-                      rua.lowercase()
-                          .contains("rua")
-                  ) {
+                  val numeros = limpa.filter { it.isDigit() }
 
-                      rua
-
+                  return if (numeros.isNotEmpty()) {
+                      "Rua $numeros"
                   } else {
-
-                      "Rua $rua"
+                      limpa
                   }
               }
 
@@ -2369,21 +2312,18 @@ jobs:
                   rack: String
               ): String {
 
-                  if (rack.isBlank()) {
+                  val limpa = rack.trim()
 
+                  if (limpa.isBlank()) {
                       return "Rack não informado"
                   }
 
-                  return if (
-                      rack.lowercase()
-                          .contains("rack")
-                  ) {
+                  val numeros = limpa.filter { it.isDigit() }
 
-                      rack
-
+                  return if (numeros.isNotEmpty()) {
+                      "Rack $numeros"
                   } else {
-
-                      "Rack $rack"
+                      limpa
                   }
               }
 
@@ -3093,21 +3033,15 @@ jobs:
                       valores.getOrNull(1)
                           ?: ""
 
-                  val rua =
-                      valores.getOrNull(2)
-                          ?: ""
+                  val ruaBruta = valores.getOrNull(2) ?: ""
+                  val rackBruto = valores.getOrNull(3) ?: ""
+                  val colunaBruta = valores.getOrNull(4) ?: ""
+                  val linhaBruta = valores.getOrNull(5) ?: ""
 
-                  val rack =
-                      valores.getOrNull(3)
-                          ?: ""
-
-                  val coluna =
-                      valores.getOrNull(4)
-                          ?: ""
-
-                  val linhaProduto =
-                      valores.getOrNull(5)
-                          ?: ""
+                  val rua = ruaBruta.split(Regex("(?i)\\b(rack|coluna|linha|rua)\\b")).first().trim()
+                  val rack = rackBruto.split(Regex("(?i)\\b(coluna|linha|rua|rack)\\b")).first().trim()
+                  val coluna = colunaBruta.split(Regex("(?i)\\b(linha|rua|rack|coluna)\\b")).first().trim()
+                  val linhaProduto = linhaBruta.split(Regex("(?i)\\b(rua|rack|coluna|linha)\\b")).first().trim()
 
                   baseProdutos[codigo] =
                       EnderecoProduto(
