@@ -89,8 +89,8 @@ jobs:
                   applicationId "com.separacao.bip"
                   minSdk 24
                   targetSdk 34
-                  versionCode 4
-                  versionName "4.0"
+                  versionCode 5
+                  versionName "5.0"
               }
 
               compileOptions {
@@ -232,7 +232,7 @@ jobs:
                           android:layout_width="match_parent"
                           android:layout_height="wrap_content"
                           android:layout_marginTop="8dp"
-                          android:text="Bipe ou digite o produto para solicitar reposição."
+                          android:text="Bipe ou digite o produto."
                           android:textColor="#616161"
                           android:textSize="14sp"/>
 
@@ -242,7 +242,8 @@ jobs:
                           android:layout_height="wrap_content"
                           android:layout_marginTop="10dp"
                           android:hint="Bipe ou digite o Código Mate"
-                          android:inputType="text"
+                          android:inputType="number"
+                          android:maxLength="20"
                           android:imeOptions="actionDone"
                           android:padding="14dp"/>
 
@@ -253,42 +254,13 @@ jobs:
                           android:layout_marginTop="6dp"
                           android:text="ADICIONAR REPOSIÇÃO"/>
 
-                      <LinearLayout
-                          android:id="@+id/cardResultadoConsulta"
+                      <Button
+                          android:id="@+id/btnLimparConsultas"
                           android:layout_width="match_parent"
                           android:layout_height="wrap_content"
-                          android:layout_marginTop="12dp"
-                          android:orientation="vertical"
-                          android:padding="16dp"
-                          android:background="#FFFFFF"
-                          android:visibility="gone">
-
-                          <TextView
-                              android:id="@+id/tvResultadoCodigo"
-                              android:layout_width="match_parent"
-                              android:layout_height="wrap_content"
-                              android:textColor="#1565C0"
-                              android:textSize="22sp"
-                              android:textStyle="bold"/>
-
-                          <TextView
-                              android:id="@+id/tvResultadoProduto"
-                              android:layout_width="match_parent"
-                              android:layout_height="wrap_content"
-                              android:layout_marginTop="8dp"
-                              android:textColor="#212121"
-                              android:textSize="17sp"
-                              android:textStyle="bold"/>
-
-                          <TextView
-                              android:id="@+id/tvResultadoEndereco"
-                              android:layout_width="match_parent"
-                              android:layout_height="wrap_content"
-                              android:layout_marginTop="14dp"
-                              android:textColor="#424242"
-                              android:textSize="18sp"/>
-
-                      </LinearLayout>
+                          android:layout_marginTop="8dp"
+                          android:text="🗑 LIMPAR CONSULTAS"
+                          android:visibility="gone"/>
 
                       <TextView
                           android:id="@+id/tvFeedback"
@@ -550,6 +522,7 @@ jobs:
           import java.text.SimpleDateFormat
           import java.util.Date
           import java.util.Locale
+          import java.util.UUID
           import java.util.zip.ZipFile
 
           data class EnderecoProduto(
@@ -575,6 +548,16 @@ jobs:
               var concluido: Boolean
           )
 
+          data class ItemConsulta(
+              val codigo: String,
+              val descricao: String,
+              val rua: String,
+              val rack: String,
+              val coluna: String,
+              val linha: String,
+              val timestamp: Long
+          )
+
           class MainActivity : AppCompatActivity() {
 
               private lateinit var tvTitulo: TextView
@@ -583,6 +566,7 @@ jobs:
 
               private lateinit var etCodigo: EditText
               private lateinit var btnProcessar: Button
+              private lateinit var btnLimparConsultas: Button
 
               private lateinit var btnModoReposicao: Button
               private lateinit var btnModoConsulta: Button
@@ -590,11 +574,6 @@ jobs:
               private lateinit var btnConfiguracoes: ImageButton
 
               private lateinit var tvFeedback: TextView
-
-              private lateinit var cardResultadoConsulta: LinearLayout
-              private lateinit var tvResultadoCodigo: TextView
-              private lateinit var tvResultadoProduto: TextView
-              private lateinit var tvResultadoEndereco: TextView
 
               private lateinit var containerContadores: LinearLayout
               private lateinit var containerAbas: LinearLayout
@@ -613,13 +592,21 @@ jobs:
               private val registros =
                   mutableListOf<ItemReposicao>()
 
+              // CONSULTAS SÃO SOMENTE LOCAIS.
+              // NÃO SERÃO SINCRONIZADAS QUANDO O FIREBASE
+              // FOR IMPLEMENTADO.
+              private val consultas =
+                  mutableListOf<ItemConsulta>()
+
               private var nomeOperador = "Operador 1"
 
               private var modoConsulta = false
               private var abaConcluidos = false
 
               companion object {
+
                   const val PREFS = "reposicao_prefs"
+
                   const val KEY_REGISTROS = "registros"
                   const val KEY_OPERADOR = "operador"
 
@@ -656,28 +643,27 @@ jobs:
                   tvModoDescricao = findViewById(R.id.tvModoDescricao)
 
                   etCodigo = findViewById(R.id.etCodigo)
-                  btnProcessar = findViewById(R.id.btnProcessar)
 
-                  btnModoReposicao = findViewById(R.id.btnModoReposicao)
-                  btnModoConsulta = findViewById(R.id.btnModoConsulta)
+                  btnProcessar =
+                      findViewById(R.id.btnProcessar)
 
-                  btnNomeOperador = findViewById(R.id.btnNomeOperador)
+                  btnLimparConsultas =
+                      findViewById(R.id.btnLimparConsultas)
+
+                  btnModoReposicao =
+                      findViewById(R.id.btnModoReposicao)
+
+                  btnModoConsulta =
+                      findViewById(R.id.btnModoConsulta)
+
+                  btnNomeOperador =
+                      findViewById(R.id.btnNomeOperador)
+
                   btnConfiguracoes =
                       findViewById(R.id.btnConfiguracoes)
 
-                  tvFeedback = findViewById(R.id.tvFeedback)
-
-                  cardResultadoConsulta =
-                      findViewById(R.id.cardResultadoConsulta)
-
-                  tvResultadoCodigo =
-                      findViewById(R.id.tvResultadoCodigo)
-
-                  tvResultadoProduto =
-                      findViewById(R.id.tvResultadoProduto)
-
-                  tvResultadoEndereco =
-                      findViewById(R.id.tvResultadoEndereco)
+                  tvFeedback =
+                      findViewById(R.id.tvFeedback)
 
                   containerContadores =
                       findViewById(R.id.containerContadores)
@@ -707,122 +693,164 @@ jobs:
               private fun configurarEventos() {
 
                   btnModoReposicao.setOnClickListener {
+
                       modoConsulta = false
+
                       atualizarModo()
                       atualizarInterface()
                   }
 
                   btnModoConsulta.setOnClickListener {
+
                       modoConsulta = true
+
                       atualizarModo()
+                      atualizarConsultas()
                   }
 
                   btnProcessar.setOnClickListener {
+
                       processarCodigo()
                   }
 
-                  etCodigo.setOnEditorActionListener { _, actionId, _ ->
+                  etCodigo.setOnEditorActionListener {
+                          _,
+                          actionId,
+                          _ ->
 
                       if (
-                          actionId == EditorInfo.IME_ACTION_DONE ||
-                          actionId == EditorInfo.IME_NULL
+                          actionId ==
+                          EditorInfo.IME_ACTION_DONE
                       ) {
 
                           processarCodigo()
+
                           true
 
                       } else {
+
                           false
                       }
                   }
 
                   btnNomeOperador.setOnClickListener {
+
                       alterarNomeOperador()
                   }
 
                   btnConfiguracoes.setOnClickListener {
+
                       abrirConfiguracoes()
                   }
 
                   btnPendentes.setOnClickListener {
+
                       abaConcluidos = false
+
                       atualizarInterface()
                   }
 
                   btnConcluidos.setOnClickListener {
+
                       abaConcluidos = true
+
                       atualizarInterface()
+                  }
+
+                  btnLimparConsultas.setOnClickListener {
+
+                      confirmarLimparConsultas()
                   }
               }
 
               private fun atualizarModo() {
 
                   tvFeedback.visibility = View.GONE
-                  cardResultadoConsulta.visibility = View.GONE
+
+                  etCodigo.setText("")
 
                   if (modoConsulta) {
 
-                      tvTitulo.text = "Consultar Produto"
+                      tvTitulo.text =
+                          "Consulta de Endereços"
 
                       tvModoDescricao.text =
-                          "Bipe o código ou digite os 5 números do Código Mate para consultar o endereço."
+                          "Bipe ou digite o Código Mate para consultar vários produtos."
 
-                      btnProcessar.text = "CONSULTAR ENDEREÇO"
+                      btnProcessar.text =
+                          "CONSULTAR ENDEREÇO"
 
-                      containerContadores.visibility = View.GONE
-                      containerAbas.visibility = View.GONE
-                      containerLista.visibility = View.GONE
+                      btnLimparConsultas.visibility =
+                          View.VISIBLE
+
+                      containerContadores.visibility =
+                          View.GONE
+
+                      containerAbas.visibility =
+                          View.GONE
 
                       btnModoConsulta.setBackgroundColor(
                           Color.parseColor("#1565C0")
                       )
 
-                      btnModoConsulta.setTextColor(Color.WHITE)
+                      btnModoConsulta.setTextColor(
+                          Color.WHITE
+                      )
 
                       btnModoReposicao.setBackgroundColor(
                           Color.parseColor("#E0E0E0")
                       )
 
                       btnModoReposicao.setTextColor(
-                          Color.parseColor("#212121")
+                          Color.BLACK
                       )
 
                   } else {
 
-                      tvTitulo.text = "Registro de Reposição"
+                      tvTitulo.text =
+                          "Registro de Reposição"
 
                       tvModoDescricao.text =
                           "Bipe ou digite o produto para solicitar reposição."
 
-                      btnProcessar.text = "ADICIONAR REPOSIÇÃO"
+                      btnProcessar.text =
+                          "ADICIONAR REPOSIÇÃO"
 
-                      containerContadores.visibility = View.VISIBLE
-                      containerAbas.visibility = View.VISIBLE
-                      containerLista.visibility = View.VISIBLE
+                      btnLimparConsultas.visibility =
+                          View.GONE
+
+                      containerContadores.visibility =
+                          View.VISIBLE
+
+                      containerAbas.visibility =
+                          View.VISIBLE
 
                       btnModoReposicao.setBackgroundColor(
                           Color.parseColor("#1565C0")
                       )
 
-                      btnModoReposicao.setTextColor(Color.WHITE)
+                      btnModoReposicao.setTextColor(
+                          Color.WHITE
+                      )
 
                       btnModoConsulta.setBackgroundColor(
                           Color.parseColor("#E0E0E0")
                       )
 
                       btnModoConsulta.setTextColor(
-                          Color.parseColor("#212121")
+                          Color.BLACK
                       )
                   }
 
-                  etCodigo.setText("")
                   etCodigo.requestFocus()
               }
 
               private fun processarCodigo() {
 
                   val entrada =
-                      etCodigo.text.toString().trim()
+                      etCodigo.text
+                          .toString()
+                          .trim()
 
                   val codigo =
                       extrairCodigoMate(entrada)
@@ -831,7 +859,7 @@ jobs:
 
                       Toast.makeText(
                           this,
-                          "Código inválido. Digite 5 números ou bipe o código de barras.",
+                          "Digite os 5 números do Código Mate ou bipe o código de barras.",
                           Toast.LENGTH_LONG
                       ).show()
 
@@ -854,7 +882,7 @@ jobs:
 
                   if (modoConsulta) {
 
-                      mostrarConsulta(produto)
+                      adicionarConsulta(produto)
 
                   } else {
 
@@ -870,7 +898,9 @@ jobs:
               ): String {
 
                   val numeros =
-                      entrada.filter { it.isDigit() }
+                      entrada.filter {
+                          it.isDigit()
+                      }
 
                   return when {
 
@@ -887,26 +917,248 @@ jobs:
                   }
               }
 
-              private fun mostrarConsulta(
+              // =========================================================
+              // CONSULTAS
+              // =========================================================
+
+              private fun adicionarConsulta(
                   produto: EnderecoProduto
               ) {
 
-                  cardResultadoConsulta.visibility =
-                      View.VISIBLE
+                  consultas.add(
+                      ItemConsulta(
+                          codigo = produto.codigo,
+                          descricao = produto.descricao,
+                          rua = produto.rua,
+                          rack = produto.rack,
+                          coluna = produto.coluna,
+                          linha = produto.linha,
+                          timestamp =
+                              System.currentTimeMillis()
+                      )
+                  )
 
-                  tvResultadoCodigo.text =
-                      "CÓDIGO: ${produto.codigo}"
-
-                  tvResultadoProduto.text =
-                      produto.descricao
-
-                  tvResultadoEndereco.text =
-                      "📍 ENDEREÇO\n\n" +
-                      "Rua: ${produto.rua}\n" +
-                      "Rack: ${produto.rack}\n" +
-                      "Coluna: ${produto.coluna}\n" +
-                      "Linha: ${produto.linha}"
+                  atualizarConsultas()
               }
+
+              private fun atualizarConsultas() {
+
+                  containerLista.removeAllViews()
+
+                  if (consultas.isEmpty()) {
+
+                      val vazio =
+                          TextView(this)
+
+                      vazio.text =
+                          "Nenhuma consulta realizada ainda."
+
+                      vazio.textSize = 16f
+
+                      vazio.setTextColor(
+                          Color.parseColor("#757575")
+                      )
+
+                      vazio.setPadding(
+                          20,
+                          30,
+                          20,
+                          30
+                      )
+
+                      containerLista.addView(vazio)
+
+                      return
+                  }
+
+                  for (
+                      consulta in consultas.reversed()
+                  ) {
+
+                      val card =
+                          LinearLayout(this)
+
+                      card.orientation =
+                          LinearLayout.VERTICAL
+
+                      card.setPadding(
+                          28,
+                          24,
+                          28,
+                          24
+                      )
+
+                      card.setBackgroundColor(
+                          Color.WHITE
+                      )
+
+                      val params =
+                          LinearLayout.LayoutParams(
+                              LinearLayout.LayoutParams.MATCH_PARENT,
+                              LinearLayout.LayoutParams.WRAP_CONTENT
+                          )
+
+                      params.setMargins(
+                          0,
+                          8,
+                          0,
+                          8
+                      )
+
+                      card.layoutParams =
+                          params
+
+                      val tvCodigo =
+                          TextView(this)
+
+                      tvCodigo.text =
+                          consulta.codigo
+
+                      tvCodigo.textSize =
+                          21f
+
+                      tvCodigo.setTextColor(
+                          Color.parseColor("#1565C0")
+                      )
+
+                      tvCodigo.setTypeface(
+                          null,
+                          android.graphics.Typeface.BOLD
+                      )
+
+                      card.addView(tvCodigo)
+
+                      val tvProduto =
+                          TextView(this)
+
+                      tvProduto.text =
+                          consulta.descricao
+
+                      tvProduto.textSize =
+                          16f
+
+                      tvProduto.setTextColor(
+                          Color.parseColor("#212121")
+                      )
+
+                      val produtoParams =
+                          LinearLayout.LayoutParams(
+                              LinearLayout.LayoutParams.MATCH_PARENT,
+                              LinearLayout.LayoutParams.WRAP_CONTENT
+                          )
+
+                      produtoParams.topMargin = 8
+
+                      tvProduto.layoutParams =
+                          produtoParams
+
+                      card.addView(tvProduto)
+
+                      val tituloEndereco =
+                          TextView(this)
+
+                      tituloEndereco.text =
+                          "📍 ENDEREÇO"
+
+                      tituloEndereco.textSize =
+                          14f
+
+                      tituloEndereco.setTextColor(
+                          Color.parseColor("#757575")
+                      )
+
+                      tituloEndereco.setTypeface(
+                          null,
+                          android.graphics.Typeface.BOLD
+                      )
+
+                      val tituloParams =
+                          LinearLayout.LayoutParams(
+                              LinearLayout.LayoutParams.MATCH_PARENT,
+                              LinearLayout.LayoutParams.WRAP_CONTENT
+                          )
+
+                      tituloParams.topMargin = 18
+
+                      tituloEndereco.layoutParams =
+                          tituloParams
+
+                      card.addView(tituloEndereco)
+
+                      val tvEndereco =
+                          TextView(this)
+
+                      tvEndereco.text =
+                          "${consulta.rua}\n" +
+                          "${consulta.rack}\n" +
+                          "Coluna ${consulta.coluna}\n" +
+                          "Linha ${consulta.linha}"
+
+                      tvEndereco.textSize =
+                          17f
+
+                      tvEndereco.setTextColor(
+                          Color.parseColor("#1565C0")
+                      )
+
+                      tvEndereco.setTypeface(
+                          null,
+                          android.graphics.Typeface.BOLD
+                      )
+
+                      val enderecoParams =
+                          LinearLayout.LayoutParams(
+                              LinearLayout.LayoutParams.MATCH_PARENT,
+                              LinearLayout.LayoutParams.WRAP_CONTENT
+                          )
+
+                      enderecoParams.topMargin = 8
+
+                      tvEndereco.layoutParams =
+                          enderecoParams
+
+                      card.addView(tvEndereco)
+
+                      containerLista.addView(card)
+                  }
+              }
+
+              private fun confirmarLimparConsultas() {
+
+                  if (consultas.isEmpty()) {
+
+                      Toast.makeText(
+                          this,
+                          "Não há consultas para limpar.",
+                          Toast.LENGTH_SHORT
+                      ).show()
+
+                      return
+                  }
+
+                  AlertDialog.Builder(this)
+                      .setTitle("Limpar consultas?")
+                      .setMessage(
+                          "Todos os resultados de consulta desta sessão serão removidos."
+                      )
+                      .setNegativeButton(
+                          "CANCELAR",
+                          null
+                      )
+                      .setPositiveButton(
+                          "LIMPAR"
+                      ) { _, _ ->
+
+                          consultas.clear()
+
+                          atualizarConsultas()
+                      }
+                      .show()
+              }
+
+              // =========================================================
+              // REPOSIÇÕES
+              // =========================================================
 
               private fun adicionarReposicao(
                   produto: EnderecoProduto
@@ -927,8 +1179,13 @@ jobs:
                               "${existente.quantidade} caixa(s) pendente(s).\n\n" +
                               "Adicionar mais uma caixa?"
                           )
-                          .setNegativeButton("Cancelar", null)
-                          .setPositiveButton("ADICIONAR") { _, _ ->
+                          .setNegativeButton(
+                              "CANCELAR",
+                              null
+                          )
+                          .setPositiveButton(
+                              "ADICIONAR"
+                          ) { _, _ ->
 
                               existente.quantidade += 1
 
@@ -950,25 +1207,37 @@ jobs:
                   val novo =
                       ItemReposicao(
                           id =
-                              System.currentTimeMillis().toString() +
-                              "_" +
-                              (0..9999).random(),
+                              UUID.randomUUID()
+                                  .toString(),
 
-                          codigo = produto.codigo,
-                          descricao = produto.descricao,
+                          codigo =
+                              produto.codigo,
+
+                          descricao =
+                              produto.descricao,
+
                           quantidade = 1,
 
-                          rua = produto.rua,
-                          rack = produto.rack,
-                          coluna = produto.coluna,
-                          linha = produto.linha,
+                          rua =
+                              produto.rua,
 
-                          operador = nomeOperador,
+                          rack =
+                              produto.rack,
+
+                          coluna =
+                              produto.coluna,
+
+                          linha =
+                              produto.linha,
+
+                          operador =
+                              nomeOperador,
 
                           timestamp =
                               System.currentTimeMillis(),
 
-                          concluido = false
+                          concluido =
+                              false
                       )
 
                   registros.add(novo)
@@ -986,43 +1255,62 @@ jobs:
 
               private fun atualizarInterface() {
 
+                  if (modoConsulta) {
+
+                      atualizarConsultas()
+
+                      return
+                  }
+
                   val pendentes =
                       registros
-                          .filter { !it.concluido }
+                          .filter {
+                              !it.concluido
+                          }
 
                   val concluidos =
                       registros
-                          .filter { it.concluido }
+                          .filter {
+                              it.concluido
+                          }
 
                   tvPendentes.text =
-                      pendentes.sumOf {
-                          it.quantidade
-                      }.toString()
+                      pendentes
+                          .sumOf {
+                              it.quantidade
+                          }
+                          .toString()
 
                   tvConcluidos.text =
-                      concluidos.sumOf {
-                          it.quantidade
-                      }.toString()
+                      concluidos
+                          .sumOf {
+                              it.quantidade
+                          }
+                          .toString()
 
                   tvTotal.text =
-                      registros.sumOf {
-                          it.quantidade
-                      }.toString()
+                      registros
+                          .sumOf {
+                              it.quantidade
+                          }
+                          .toString()
 
                   containerLista.removeAllViews()
 
                   val lista =
                       if (abaConcluidos) {
 
-                          concluidos.sortedByDescending {
-                              it.timestamp
-                          }
+                          concluidos
+                              .sortedByDescending {
+                                  it.timestamp
+                              }
 
                       } else {
 
-                          pendentes.sortedBy {
-                              it.timestamp
-                          }
+                          pendentes
+                              .sortedBy {
+                                  it.timestamp
+                              }
                       }
 
                   btnPendentes.setBackgroundColor(
@@ -1040,13 +1328,17 @@ jobs:
                   )
 
                   btnPendentes.setTextColor(
-                      if (!abaConcluidos) Color.WHITE
-                      else Color.BLACK
+                      if (!abaConcluidos)
+                          Color.WHITE
+                      else
+                          Color.BLACK
                   )
 
                   btnConcluidos.setTextColor(
-                      if (abaConcluidos) Color.WHITE
-                      else Color.BLACK
+                      if (abaConcluidos)
+                          Color.WHITE
+                      else
+                          Color.BLACK
                   )
 
                   val formato =
@@ -1106,8 +1398,12 @@ jobs:
                       tvProduto.text =
                           item.descricao
 
+                      // FORMATO CORRIGIDO:
+                      // Rua 1 — Rack 1
+                      // Coluna 5 — Linha B
+
                       tvEndereco.text =
-                          "${item.rua} — Rack ${item.rack}\n" +
+                          "${item.rua} — ${item.rack}\n" +
                           "Coluna ${item.coluna} — Linha ${item.linha}"
 
                       tvDetalhes.text =
@@ -1118,7 +1414,8 @@ jobs:
 
                       if (item.concluido) {
 
-                          tvStatus.text = "CONCLUÍDO"
+                          tvStatus.text =
+                              "CONCLUÍDO"
 
                           tvStatus.setTextColor(
                               Color.parseColor("#1B5E20")
@@ -1128,7 +1425,8 @@ jobs:
                               Color.parseColor("#C8E6C9")
                           )
 
-                          btnAcao.text = "DESFAZER"
+                          btnAcao.text =
+                              "DESFAZER"
 
                           btnExcluir.visibility =
                               View.VISIBLE
@@ -1145,12 +1443,14 @@ jobs:
                           btnExcluir.setOnClickListener {
 
                               AlertDialog.Builder(this)
-                                  .setTitle("Excluir registro?")
+                                  .setTitle(
+                                      "Excluir registro?"
+                                  )
                                   .setMessage(
                                       "Esse registro será apagado permanentemente."
                                   )
                                   .setNegativeButton(
-                                      "Cancelar",
+                                      "CANCELAR",
                                       null
                                   )
                                   .setPositiveButton(
@@ -1168,7 +1468,8 @@ jobs:
 
                       } else {
 
-                          tvStatus.text = "PENDENTE"
+                          tvStatus.text =
+                              "PENDENTE"
 
                           tvStatus.setTextColor(
                               Color.parseColor("#B71C1C")
@@ -1178,7 +1479,8 @@ jobs:
                               Color.parseColor("#FFCDD2")
                           )
 
-                          btnAcao.text = "CONCLUIR"
+                          btnAcao.text =
+                              "CONCLUIR"
 
                           btnExcluir.visibility =
                               View.GONE
@@ -1196,6 +1498,10 @@ jobs:
                       containerLista.addView(view)
                   }
               }
+
+              // =========================================================
+              // OPERADOR
+              // =========================================================
 
               private fun carregarOperador() {
 
@@ -1229,11 +1535,11 @@ jobs:
                       )
                       .setView(input)
                       .setNegativeButton(
-                          "Cancelar",
+                          "CANCELAR",
                           null
                       )
                       .setPositiveButton(
-                          "Salvar"
+                          "SALVAR"
                       ) { _, _ ->
 
                           val novo =
@@ -1243,7 +1549,8 @@ jobs:
 
                           if (novo.isNotEmpty()) {
 
-                              nomeOperador = novo
+                              nomeOperador =
+                                  novo
 
                               getSharedPreferences(
                                   PREFS,
@@ -1262,6 +1569,10 @@ jobs:
                       }
                       .show()
               }
+
+              // =========================================================
+              // PERSISTÊNCIA DOS REGISTROS
+              // =========================================================
 
               private fun salvarRegistros() {
 
@@ -1321,15 +1632,20 @@ jobs:
 
                       registros.clear()
 
-                      for (i in 0 until array.length()) {
+                      for (
+                          i in 0 until array.length()
+                      ) {
 
                           val obj =
                               array.getJSONObject(i)
 
                           registros.add(
                               ItemReposicao(
-                                  id = obj.getString("id"),
-                                  codigo = obj.getString("codigo"),
+                                  id =
+                                      obj.getString("id"),
+
+                                  codigo =
+                                      obj.getString("codigo"),
 
                                   descricao =
                                       obj.optString(
@@ -1372,6 +1688,10 @@ jobs:
                   }
               }
 
+              // =========================================================
+              // CONFIGURAÇÕES / PLANILHA
+              // =========================================================
+
               private fun abrirConfiguracoes() {
 
                   val opcoes =
@@ -1382,7 +1702,9 @@ jobs:
 
                   AlertDialog.Builder(this)
                       .setTitle("Configurações")
-                      .setItems(opcoes) { _, posicao ->
+                      .setItems(
+                          opcoes
+                      ) { _, posicao ->
 
                           when (posicao) {
 
@@ -1399,7 +1721,9 @@ jobs:
               private fun selecionarPlanilha() {
 
                   val intent =
-                      Intent(Intent.ACTION_OPEN_DOCUMENT)
+                      Intent(
+                          Intent.ACTION_OPEN_DOCUMENT
+                      )
 
                   intent.addCategory(
                       Intent.CATEGORY_OPENABLE
@@ -1420,10 +1744,10 @@ jobs:
                       .setTitle("Base de endereços")
                       .setMessage(
                           "Produtos mapeados: ${baseProdutos.size}\n\n" +
-                          "A base utilizada contém:\n\n" +
+                          "Campos utilizados:\n\n" +
                           "• Código Mate\n" +
                           "• Descrição do produto\n" +
-                          "• Estação / Rua\n" +
+                          "• Rua / Estação\n" +
                           "• Rack\n" +
                           "• Coluna\n" +
                           "• Linha"
@@ -1448,8 +1772,10 @@ jobs:
                   )
 
                   if (
-                      requestCode == REQUEST_IMPORT_XLSX &&
-                      resultCode == Activity.RESULT_OK
+                      requestCode ==
+                      REQUEST_IMPORT_XLSX &&
+                      resultCode ==
+                      Activity.RESULT_OK
                   ) {
 
                       val uri =
@@ -1459,7 +1785,9 @@ jobs:
                   }
               }
 
-              private fun importarPlanilha(uri: Uri) {
+              private fun importarPlanilha(
+                  uri: Uri
+              ) {
 
                   try {
 
@@ -1486,7 +1814,7 @@ jobs:
 
                       Toast.makeText(
                           this,
-                          "Planilha atualizada com sucesso!\n${baseProdutos.size} produtos encontrados.",
+                          "Planilha atualizada!\n${baseProdutos.size} produtos encontrados.",
                           Toast.LENGTH_LONG
                       ).show()
 
@@ -1499,6 +1827,10 @@ jobs:
                       ).show()
                   }
               }
+
+              // =========================================================
+              // CARREGAMENTO DA PLANILHA
+              // =========================================================
 
               private fun carregarBaseEnderecos() {
 
@@ -1520,9 +1852,9 @@ jobs:
 
                           assets
                               .open("enderecos.xlsx")
-                              .use {
+                              .use { input ->
 
-                                  carregarPlanilha(it)
+                                  carregarPlanilha(input)
                               }
                       }
 
@@ -1582,7 +1914,9 @@ jobs:
                                   it.name.startsWith(
                                       "xl/worksheets/sheet"
                                   ) &&
-                                  it.name.endsWith(".xml")
+                                  it.name.endsWith(
+                                      ".xml"
+                                  )
                               }
 
                       if (sheet == null) {
@@ -1629,7 +1963,8 @@ jobs:
                       parser.eventType
 
                   while (
-                      event != XmlPullParser.END_DOCUMENT
+                      event !=
+                      XmlPullParser.END_DOCUMENT
                   ) {
 
                       when (event) {
@@ -1646,7 +1981,8 @@ jobs:
 
                           XmlPullParser.TEXT -> {
 
-                              textoAtual += parser.text
+                              textoAtual +=
+                                  parser.text
                           }
 
                           XmlPullParser.END_TAG -> {
@@ -1662,7 +1998,8 @@ jobs:
                           }
                       }
 
-                      event = parser.next()
+                      event =
+                          parser.next()
                   }
 
                   return resultado
@@ -1690,13 +2027,13 @@ jobs:
                   var linhaAtual =
                       mutableMapOf<Int, String>()
 
-                  var dentroLinha = false
                   var colunaAtual = 0
                   var tipoCelula = ""
                   var valor = ""
 
                   while (
-                      event != XmlPullParser.END_DOCUMENT
+                      event !=
+                      XmlPullParser.END_DOCUMENT
                   ) {
 
                       when (event) {
@@ -1706,8 +2043,6 @@ jobs:
                               when (parser.name) {
 
                                   "row" -> {
-
-                                      dentroLinha = true
 
                                       linhaAtual =
                                           mutableMapOf()
@@ -1744,7 +2079,8 @@ jobs:
 
                           XmlPullParser.TEXT -> {
 
-                              valor += parser.text
+                              valor +=
+                                  parser.text
                           }
 
                           XmlPullParser.END_TAG -> {
@@ -1766,7 +2102,8 @@ jobs:
 
                                           if (
                                               indice != null &&
-                                              indice < sharedStrings.size
+                                              indice <
+                                              sharedStrings.size
                                           ) {
 
                                               final =
@@ -1781,19 +2118,21 @@ jobs:
                                   "row" -> {
 
                                       if (
-                                          dentroLinha &&
                                           linhaAtual.isNotEmpty()
                                       ) {
 
                                           val max =
-                                              linhaAtual.keys.maxOrNull() ?: 0
+                                              linhaAtual.keys.maxOrNull()
+                                                  ?: 0
 
                                           val lista =
                                               MutableList(max + 1) {
                                                   ""
                                               }
 
-                                          for ((indice, texto) in linhaAtual) {
+                                          for (
+                                              (indice, texto) in linhaAtual
+                                          ) {
 
                                               if (
                                                   indice < lista.size
@@ -1806,14 +2145,13 @@ jobs:
 
                                           resultado.add(lista)
                                       }
-
-                                      dentroLinha = false
                                   }
                               }
                           }
                       }
 
-                      event = parser.next()
+                      event =
+                          parser.next()
                   }
 
                   return resultado
@@ -1831,7 +2169,11 @@ jobs:
 
                       resultado =
                           resultado * 26 +
-                          (c.uppercaseChar() - 'A' + 1)
+                          (
+                              c.uppercaseChar() -
+                              'A' +
+                              1
+                          )
                   }
 
                   return resultado - 1
@@ -1841,28 +2183,35 @@ jobs:
                   linhas: List<List<String>>
               ) {
 
-                  if (linhas.isEmpty()) return
+                  if (
+                      linhas.isEmpty()
+                  ) return
 
                   var indiceCabecalho = -1
 
-                  for (i in linhas.indices) {
+                  for (
+                      i in linhas.indices
+                  ) {
 
-                      val linha =
+                      val texto =
                           linhas[i]
                               .joinToString("|")
                               .lowercase()
 
                       if (
-                          linha.contains("cod material") &&
-                          linha.contains("desc material")
+                          texto.contains("cod material") &&
+                          texto.contains("desc material")
                       ) {
 
                           indiceCabecalho = i
+
                           break
                       }
                   }
 
-                  if (indiceCabecalho == -1) {
+                  if (
+                      indiceCabecalho == -1
+                  ) {
 
                       throw Exception(
                           "Não foi possível localizar os cabeçalhos da planilha."
@@ -1877,11 +2226,11 @@ jobs:
                   ): Int {
 
                       return cabecalho.indexOfFirst {
-                          it.trim()
-                              .equals(
-                                  nome,
-                                  ignoreCase = true
-                              )
+
+                          it.trim().equals(
+                              nome,
+                              ignoreCase = true
+                          )
                       }
                   }
 
@@ -1918,7 +2267,10 @@ jobs:
                   }
 
                   for (
-                      i in (indiceCabecalho + 1) until linhas.size
+                      i in
+                      (indiceCabecalho + 1)
+                          until
+                          linhas.size
                   ) {
 
                       val linha =
@@ -1933,9 +2285,11 @@ jobs:
                               indice < linha.size
                           ) {
 
-                              linha[indice].trim()
+                              linha[indice]
+                                  .trim()
 
                           } else {
+
                               ""
                           }
                       }
@@ -1945,7 +2299,9 @@ jobs:
 
                       val codigo =
                           codigoBruto
-                              .filter { it.isDigit() }
+                              .filter {
+                                  it.isDigit()
+                              }
                               .takeLast(5)
 
                       if (
@@ -2005,5 +2361,5 @@ jobs:
       - name: Enviar APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-reposicao-v4
+          name: app-reposicao-v5
           path: app/build/outputs/apk/debug/app-debug.apk
