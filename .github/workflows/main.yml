@@ -1,41 +1,38 @@
-name: Build Android APK
-
-on:
-  push:
-    branches: [ "main", "principal" ]
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-
-      - name: Checkout do projeto
-        uses: actions/checkout@v4
-
-      - name: Configurar Java 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
       - name: Criar estrutura do projeto
         run: |
           mkdir -p app/src/main/java/com/separacao/bip
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/assets
 
-          XLSX_FILE=$(find dados -type f -iname "*.xlsx" -o -iname "*.xlsm" | head -n 1)
+          echo "Verificando arquivos do projeto..."
 
-          if [ -z "$XLSX_FILE" ]; then
-            echo "ERRO: Nenhuma planilha XLSX encontrada dentro da pasta dados/"
+          if [ ! -d "dados" ]; then
+            echo "ERRO: A pasta 'dados' não existe no repositório."
+            echo "Crie uma pasta chamada dados e coloque a planilha dentro dela."
             exit 1
           fi
 
-          echo "Planilha encontrada: $XLSX_FILE"
+          echo "Arquivos encontrados na pasta dados:"
+          ls -lah dados
+
+          XLSX_FILE=$(find dados -type f -iname "*.xlsx" | head -n 1)
+
+          if [ -z "$XLSX_FILE" ]; then
+            XLSX_FILE=$(find dados -type f -iname "*.xlsm" | head -n 1)
+          fi
+
+          if [ -z "$XLSX_FILE" ]; then
+            echo "ERRO: Nenhuma planilha XLSX ou XLSM encontrada dentro da pasta dados/"
+            exit 1
+          fi
+
+          echo "Planilha encontrada:"
+          echo "$XLSX_FILE"
 
           cp "$XLSX_FILE" app/src/main/assets/enderecos.xlsx
+
+          echo "Planilha copiada com sucesso para:"
+          ls -lah app/src/main/assets/
 
       - name: Criar arquivos Gradle
         run: |
