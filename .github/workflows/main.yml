@@ -85,8 +85,8 @@ jobs:
                 applicationId "com.separacao.bip"
                 minSdk 24
                 targetSdk 34
-                versionCode 2
-                versionName "2.0"
+                versionCode 3
+                versionName "3.0"
             }
 
             compileOptions {
@@ -132,7 +132,7 @@ jobs:
         </manifest>
         EOF
 
-    - name: Gerar Layout Item
+    - name: Gerar Layout dos Registros
       run: |
         cat << 'EOF' > app/src/main/res/layout/item_reposicao.xml
         <?xml version="1.0" encoding="utf-8"?>
@@ -203,8 +203,7 @@ jobs:
                     android:id="@+id/btnAcao"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textSize="12sp"
-                    android:textColor="#212121" />
+                    android:textSize="12sp" />
 
                 <Button
                     android:id="@+id/btnApagar"
@@ -221,7 +220,7 @@ jobs:
         </LinearLayout>
         EOF
 
-    - name: Gerar Layout Main
+    - name: Gerar Layout Principal
       run: |
         cat << 'EOF' > app/src/main/res/layout/activity_main.xml
         <?xml version="1.0" encoding="utf-8"?>
@@ -244,15 +243,15 @@ jobs:
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="Reposição"
+                    android:text="Registro de Reposição"
                     android:textSize="20sp"
                     android:textStyle="bold"
                     android:textColor="#212121" />
 
                 <ImageButton
                     android:id="@+id/btnConfiguracoes"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
                     android:background="?android:attr/selectableItemBackground"
                     android:contentDescription="Configurações"
                     android:src="@android:drawable/ic_menu_manage" />
@@ -282,8 +281,7 @@ jobs:
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
-                        android:text="NOMEAR OPERADOR"
-                        android:textColor="#212121" />
+                        android:text="NOMEAR OPERADOR" />
 
                     <EditText
                         android:id="@+id/etCodigoBarras"
@@ -293,18 +291,14 @@ jobs:
                         android:hint="Bipe o código ou digite o Código Mate"
                         android:inputType="text"
                         android:imeOptions="actionDone"
-                        android:padding="12dp"
-                        android:focusable="true"
-                        android:focusableInTouchMode="true"
-                        android:background="@android:drawable/editbox_background" />
+                        android:padding="12dp" />
 
                     <Button
                         android:id="@+id/btnProcessarCodigo"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
-                        android:text="PROCESSAR CÓDIGO"
-                        android:textColor="#212121" />
+                        android:text="PROCESSAR CÓDIGO" />
 
                     <TextView
                         android:id="@+id/tvFeedbackAdicionado"
@@ -385,8 +379,8 @@ jobs:
                         <LinearLayout
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:layout_marginStart="4dp"
                             android:layout_weight="1"
+                            android:layout_marginStart="4dp"
                             android:background="#FFF59D"
                             android:orientation="vertical"
                             android:padding="10dp"
@@ -417,16 +411,14 @@ jobs:
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:layout_marginTop="16dp"
-                        android:weightSum="2">
+                        android:layout_marginTop="16dp">
 
                         <Button
                             android:id="@+id/btnTabPendentes"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="PENDENTES"
-                            android:textColor="#FFFFFF" />
+                            android:text="PENDENTES" />
 
                         <Button
                             android:id="@+id/btnTabConcluidos"
@@ -434,8 +426,7 @@ jobs:
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:layout_marginStart="4dp"
-                            android:text="CONCLUÍDOS"
-                            android:textColor="#424242" />
+                            android:text="CONCLUÍDOS" />
 
                     </LinearLayout>
 
@@ -453,7 +444,7 @@ jobs:
         </LinearLayout>
         EOF
 
-    - name: Gerar MainActivity
+    - name: Gerar MainActivity com salvamento permanente
       run: |
         cat << 'EOF' > app/src/main/java/com/separacao/bip/MainActivity.kt
         package com.separacao.bip
@@ -476,6 +467,8 @@ jobs:
         import android.widget.TextView
         import android.widget.Toast
         import androidx.appcompat.app.AppCompatActivity
+        import org.json.JSONArray
+        import org.json.JSONObject
         import java.io.BufferedReader
         import java.io.InputStreamReader
         import java.io.OutputStreamWriter
@@ -525,7 +518,6 @@ jobs:
             private val listaReposicao = mutableListOf<ItemReposicao>()
 
             private var nomeOperador = "Operador 1"
-
             private var abaAtual = 0
 
             private val baseEnderecos =
@@ -534,6 +526,10 @@ jobs:
             companion object {
                 private const val REQUEST_PICK_CSV = 1001
                 private const val REQUEST_CREATE_CSV = 1002
+
+                private const val PREFS_NAME = "ReposicaoPrefs"
+                private const val KEY_REGISTROS = "registros"
+                private const val KEY_OPERADOR = "nome_operador"
             }
 
             override fun onCreate(savedInstanceState: Bundle?) {
@@ -559,8 +555,10 @@ jobs:
                 containerLista = findViewById(R.id.containerLista)
 
                 carregarOperadorSalvo()
-
                 carregarBaseInicial()
+
+                # CARREGA TODOS OS REGISTROS SALVOS
+                carregarRegistrosSalvos()
 
                 btnProcessarCodigo.setOnClickListener {
                     processarEntrada(etCodigoBarras.text.toString().trim())
@@ -581,10 +579,7 @@ jobs:
                         actionId == EditorInfo.IME_NULL
                     ) {
 
-                        processarEntrada(
-                            etCodigoBarras.text.toString().trim()
-                        )
-
+                        processarEntrada(etCodigoBarras.text.toString().trim())
                         true
 
                     } else {
@@ -593,76 +588,195 @@ jobs:
                 }
 
                 btnTabPendentes.setOnClickListener {
-
                     abaAtual = 0
-
                     atualizarBotoesAbas()
-
                     atualizarInterface()
                 }
 
                 btnTabConcluidos.setOnClickListener {
-
                     abaAtual = 1
-
                     atualizarBotoesAbas()
-
                     atualizarInterface()
                 }
 
                 atualizarBotoesAbas()
-
-                etCodigoBarras.requestFocus()
-
                 atualizarInterface()
-            }
-
-            override fun onResume() {
-                super.onResume()
 
                 etCodigoBarras.requestFocus()
             }
+
+            /*
+             =====================================================
+             OPERADOR
+             =====================================================
+            */
 
             private fun carregarOperadorSalvo() {
 
                 val prefs =
                     getSharedPreferences(
-                        "PrefsReposicao",
+                        PREFS_NAME,
                         Context.MODE_PRIVATE
                     )
 
                 nomeOperador =
                     prefs.getString(
-                        "nome_operador",
+                        KEY_OPERADOR,
                         "Operador 1"
                     ) ?: "Operador 1"
 
-                tvOperador.text =
-                    "Operador: $nomeOperador"
+                tvOperador.text = "Operador: $nomeOperador"
             }
 
-            private fun salvarOperador(
-                novoNome: String
-            ) {
+            private fun salvarOperador(novoNome: String) {
 
                 val prefs =
                     getSharedPreferences(
-                        "PrefsReposicao",
+                        PREFS_NAME,
                         Context.MODE_PRIVATE
                     )
 
                 prefs.edit()
-                    .putString(
-                        "nome_operador",
-                        novoNome
-                    )
+                    .putString(KEY_OPERADOR, novoNome)
                     .apply()
 
                 nomeOperador = novoNome
-
-                tvOperador.text =
-                    "Operador: $nomeOperador"
+                tvOperador.text = "Operador: $nomeOperador"
             }
+
+            /*
+             =====================================================
+             SALVAMENTO PERMANENTE DOS REGISTROS
+             =====================================================
+            */
+
+            private fun salvarRegistros() {
+
+                try {
+
+                    val jsonArray = JSONArray()
+
+                    for (item in listaReposicao) {
+
+                        val json = JSONObject()
+
+                        json.put("id", item.id)
+                        json.put("codigoMate", item.codigoMate)
+                        json.put("quantidade", item.quantidade)
+                        json.put("rua", item.rua)
+                        json.put("rack", item.rack)
+                        json.put("coluna", item.coluna)
+                        json.put("linha", item.linha)
+                        json.put("operador", item.operador)
+                        json.put("timestamp", item.timestamp)
+                        json.put("concluido", item.concluido)
+
+                        jsonArray.put(json)
+                    }
+
+                    val prefs =
+                        getSharedPreferences(
+                            PREFS_NAME,
+                            Context.MODE_PRIVATE
+                        )
+
+                    prefs.edit()
+                        .putString(
+                            KEY_REGISTROS,
+                            jsonArray.toString()
+                        )
+                        .apply()
+
+                } catch (e: Exception) {
+
+                    Toast.makeText(
+                        this,
+                        "Erro ao salvar registros",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+
+            private fun carregarRegistrosSalvos() {
+
+                try {
+
+                    val prefs =
+                        getSharedPreferences(
+                            PREFS_NAME,
+                            Context.MODE_PRIVATE
+                        )
+
+                    val dados =
+                        prefs.getString(
+                            KEY_REGISTROS,
+                            null
+                        ) ?: return
+
+                    val jsonArray =
+                        JSONArray(dados)
+
+                    listaReposicao.clear()
+
+                    for (i in 0 until jsonArray.length()) {
+
+                        val json =
+                            jsonArray.getJSONObject(i)
+
+                        val item =
+                            ItemReposicao(
+
+                                id =
+                                    json.getString("id"),
+
+                                codigoMate =
+                                    json.getString("codigoMate"),
+
+                                quantidade =
+                                    json.getInt("quantidade"),
+
+                                rua =
+                                    json.getString("rua"),
+
+                                rack =
+                                    json.getString("rack"),
+
+                                coluna =
+                                    json.getString("coluna"),
+
+                                linha =
+                                    json.getString("linha"),
+
+                                operador =
+                                    json.getString("operador"),
+
+                                timestamp =
+                                    json.getLong("timestamp"),
+
+                                concluido =
+                                    json.getBoolean("concluido")
+                            )
+
+                        listaReposicao.add(item)
+                    }
+
+                } catch (e: Exception) {
+
+                    listaReposicao.clear()
+
+                    Toast.makeText(
+                        this,
+                        "Não foi possível recuperar os registros anteriores.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+
+            /*
+             =====================================================
+             BASE DE ENDEREÇOS
+             =====================================================
+            */
 
             private fun carregarBaseInicial() {
 
@@ -670,82 +784,45 @@ jobs:
 
                     baseEnderecos.clear()
 
-                    val inputStream =
-                        assets.open("enderecos.csv")
-
                     val reader =
                         BufferedReader(
                             InputStreamReader(
-                                inputStream,
+                                assets.open("enderecos.csv"),
                                 Charsets.UTF_8
                             )
                         )
 
                     var linhaArquivo: String?
-
                     var primeiraLinha = true
 
-                    var totalCodigos = 0
-
                     while (
-                        reader.readLine()
-                            .also {
-                                linhaArquivo = it
-                            } != null
+                        reader.readLine().also {
+                            linhaArquivo = it
+                        } != null
                     ) {
 
                         if (primeiraLinha) {
-
                             primeiraLinha = false
-
                             continue
                         }
 
                         val linha =
-                            linhaArquivo?.trim()
-                                ?: continue
+                            linhaArquivo?.trim() ?: continue
 
-                        if (linha.isEmpty()) {
-                            continue
-                        }
+                        if (linha.isEmpty()) continue
 
                         val colunas =
                             linha.split(",")
 
-                        if (colunas.size < 6) {
-                            continue
-                        }
+                        if (colunas.size < 6) continue
 
-                        val rua =
-                            colunas[0].trim()
+                        val rua = colunas[0].trim()
+                        val rack = colunas[1].trim()
 
-                        val rack =
-                            colunas[1].trim()
+                        val colunaApp = colunas[3].trim()
+                        val linhaApp = colunas[4].trim()
 
-                        /*
-                         Planilha:
-
-                         Linha = número
-                         Coluna = letra
-
-                         Aplicativo:
-
-                         Coluna = número
-                         Linha = letra
-                        */
-
-                        val colunaApp =
-                            colunas[3].trim()
-
-                        val linhaApp =
-                            colunas[4].trim()
-
-                        val codigosTexto =
-                            colunas[5].trim()
-
-                        if (codigosTexto.isEmpty()) {
-                            continue
-                        }
+                        val codigosTexto = colunas[5].trim()
 
                         val endereco =
                             Quadruple(
@@ -763,58 +840,47 @@ jobs:
                             val codigo =
                                 codigoOriginal
                                     .trim()
-                                    .filter {
-                                        it.isDigit()
-                                    }
+                                    .filter { it.isDigit() }
 
                             if (codigo.length == 5) {
-
-                                baseEnderecos[codigo] =
-                                    endereco
-
-                                totalCodigos++
+                                baseEnderecos[codigo] = endereco
                             }
                         }
                     }
 
                     reader.close()
 
-                    Toast.makeText(
-                        this,
-                        "Base carregada: $totalCodigos códigos",
-                        Toast.LENGTH_LONG
-                    ).show()
-
                 } catch (e: Exception) {
 
                     Toast.makeText(
                         this,
-                        "Erro ao carregar base: ${e.message}",
+                        "Erro ao carregar base de endereços",
                         Toast.LENGTH_LONG
                     ).show()
                 }
             }
 
+            /*
+             =====================================================
+             IDENTIFICAÇÃO DO OPERADOR
+             =====================================================
+            */
+
             private fun abrirDialogoNomeOperador() {
 
-                val input =
-                    EditText(this)
+                val input = EditText(this)
 
                 input.setText(nomeOperador)
 
                 AlertDialog.Builder(this)
                     .setTitle("Nome do Operador")
-                    .setMessage(
-                        "Digite o nome do operador:"
-                    )
+                    .setMessage("Digite o nome do operador:")
                     .setView(input)
 
                     .setPositiveButton("Salvar") { _, _ ->
 
                         val novoNome =
-                            input.text
-                                .toString()
-                                .trim()
+                            input.text.toString().trim()
 
                         if (novoNome.isNotEmpty()) {
 
@@ -828,74 +894,56 @@ jobs:
                         }
                     }
 
-                    .setNegativeButton(
-                        "Cancelar",
-                        null
-                    )
-
+                    .setNegativeButton("Cancelar", null)
                     .show()
             }
+
+            /*
+             =====================================================
+             CONFIGURAÇÕES
+             =====================================================
+            */
 
             private fun abrirMenuConfiguracoes() {
 
                 val opcoes =
                     arrayOf(
-
                         "Importar Planilha de Endereços (.csv)",
-
                         "Exportar Modelo CSV",
-
                         "Visualizar Mapeamentos"
                     )
 
                 AlertDialog.Builder(this)
-                    .setTitle(
-                        "Configurações"
-                    )
+                    .setTitle("Configurações")
 
                     .setItems(opcoes) { _, which ->
 
                         when (which) {
 
-                            0 ->
-                                abrirSeletorPlanilha()
-
-                            1 ->
-                                exportarPlanilhaModelo()
-
-                            2 ->
-                                exibirMapeamentos()
+                            0 -> abrirSeletorPlanilha()
+                            1 -> exportarPlanilhaModelo()
+                            2 -> exibirMapeamentos()
                         }
                     }
 
                     .show()
             }
 
-            private fun extrairCodigoMate(
-                entrada: String
-            ): String {
+            /*
+             =====================================================
+             EXTRAÇÃO DO CÓDIGO MATE
+             =====================================================
+            */
+
+            private fun extrairCodigoMate(entrada: String): String {
 
                 val numeros =
-                    entrada.filter {
-                        it.isDigit()
-                    }
+                    entrada.filter { it.isDigit() }
 
                 return when {
 
-                    /*
-                     Código Mate digitado manualmente
-                    */
-
                     numeros.length == 5 ->
                         numeros
-
-                    /*
-                     Código de barras completo:
-
-                     ignora o último dígito
-
-                     pega os 5 anteriores
-                    */
 
                     numeros.length >= 6 ->
                         numeros
@@ -907,9 +955,13 @@ jobs:
                 }
             }
 
-            private fun processarEntrada(
-                entrada: String
-            ) {
+            /*
+             =====================================================
+             PROCESSAR CÓDIGO
+             =====================================================
+            */
+
+            private fun processarEntrada(entrada: String) {
 
                 if (entrada.isEmpty()) {
 
@@ -941,31 +993,26 @@ jobs:
 
                 if (item != null) {
 
-                    val endereco =
-                        item.rua +
-                        " — Rack " +
-                        item.rack +
-                        " — Coluna " +
-                        item.coluna +
-                        " — Linha " +
-                        item.linha
-
                     tvFeedbackAdicionado.visibility =
                         View.VISIBLE
 
                     tvFeedbackAdicionado.text =
-                        "Código " +
-                        item.codigoMate +
-                        " — " +
-                        endereco
+                        "Código ${item.codigoMate} — " +
+                        "${item.rua} — Rack ${item.rack} — " +
+                        "Coluna ${item.coluna} — Linha ${item.linha}"
                 }
 
                 etCodigoBarras.setText("")
-
                 etCodigoBarras.requestFocus()
 
                 atualizarInterface()
             }
+
+            /*
+             =====================================================
+             ADICIONAR OU AGRUPAR
+             =====================================================
+            */
 
             private fun adicionarOuAgruparItem(
                 mate: String
@@ -974,15 +1021,11 @@ jobs:
                 val enderecoInfo =
                     baseEnderecos[mate]
 
-                /*
-                 Nunca inventar endereço.
-                */
-
                 if (enderecoInfo == null) {
 
                     Toast.makeText(
                         this,
-                        "Código Mate $mate não encontrado na base de endereços.",
+                        "Código Mate $mate não encontrado na base.",
                         Toast.LENGTH_LONG
                     ).show()
 
@@ -991,23 +1034,15 @@ jobs:
 
                 val itemExistente =
                     listaReposicao.find {
-
                         it.codigoMate == mate &&
                         !it.concluido
                     }
-
-                /*
-                 Se já existe pendente,
-                 perguntar se deseja adicionar mais uma caixa.
-                */
 
                 if (itemExistente != null) {
 
                     AlertDialog.Builder(this)
 
-                        .setTitle(
-                            "Código já solicitado"
-                        )
+                        .setTitle("Código já solicitado")
 
                         .setMessage(
                             "O código $mate já possui " +
@@ -1015,24 +1050,20 @@ jobs:
                             "Adicionar mais uma caixa?"
                         )
 
-                        .setNegativeButton(
-                            "Cancelar",
-                            null
-                        )
+                        .setNegativeButton("Cancelar", null)
 
-                        .setPositiveButton(
-                            "Adicionar"
-                        ) { _, _ ->
+                        .setPositiveButton("Adicionar") { _, _ ->
 
                             itemExistente.quantidade += 1
+
+                            # SALVA A ALTERAÇÃO
+                            salvarRegistros()
 
                             tvFeedbackAdicionado.visibility =
                                 View.VISIBLE
 
                             tvFeedbackAdicionado.text =
-                                "${itemExistente.quantidade} cx " +
-                                mate +
-                                " pendentes"
+                                "${itemExistente.quantidade} cx $mate pendentes"
 
                             atualizarInterface()
 
@@ -1044,53 +1075,42 @@ jobs:
                     return null
                 }
 
-                /*
-                 Não existe pendência para esse código.
-
-                 Cria nova solicitação.
-                */
-
                 val novoItem =
                     ItemReposicao(
 
                         id =
-                            System.currentTimeMillis()
-                                .toString() +
+                            System.currentTimeMillis().toString() +
                             "_" +
                             (0..1000).random(),
 
-                        codigoMate =
-                            mate,
+                        codigoMate = mate,
+                        quantidade = 1,
 
-                        quantidade =
-                            1,
+                        rua = enderecoInfo.first,
+                        rack = enderecoInfo.second,
+                        coluna = enderecoInfo.third,
+                        linha = enderecoInfo.fourth,
 
-                        rua =
-                            enderecoInfo.first,
+                        operador = nomeOperador,
 
-                        rack =
-                            enderecoInfo.second,
+                        timestamp = System.currentTimeMillis(),
 
-                        coluna =
-                            enderecoInfo.third,
-
-                        linha =
-                            enderecoInfo.fourth,
-
-                        operador =
-                            nomeOperador,
-
-                        timestamp =
-                            System.currentTimeMillis(),
-
-                        concluido =
-                            false
+                        concluido = false
                     )
 
                 listaReposicao.add(novoItem)
 
+                # SALVA IMEDIATAMENTE
+                salvarRegistros()
+
                 return novoItem
             }
+
+            /*
+             =====================================================
+             ABAS
+             =====================================================
+            */
 
             private fun atualizarBotoesAbas() {
 
@@ -1100,9 +1120,7 @@ jobs:
                         Color.parseColor("#1E88E5")
                     )
 
-                    btnTabPendentes.setTextColor(
-                        Color.WHITE
-                    )
+                    btnTabPendentes.setTextColor(Color.WHITE)
 
                     btnTabConcluidos.setBackgroundColor(
                         Color.parseColor("#E0E0E0")
@@ -1118,9 +1136,7 @@ jobs:
                         Color.parseColor("#1E88E5")
                     )
 
-                    btnTabConcluidos.setTextColor(
-                        Color.WHITE
-                    )
+                    btnTabConcluidos.setTextColor(Color.WHITE)
 
                     btnTabPendentes.setBackgroundColor(
                         Color.parseColor("#E0E0E0")
@@ -1131,6 +1147,12 @@ jobs:
                     )
                 }
             }
+
+            /*
+             =====================================================
+             ATUALIZAR INTERFACE
+             =====================================================
+            */
 
             private fun atualizarInterface() {
 
@@ -1161,16 +1183,6 @@ jobs:
 
                 containerLista.removeAllViews()
 
-                /*
-                 Pendentes:
-
-                 os mais antigos primeiro.
-
-                 Concluídos:
-
-                 os mais recentes primeiro.
-                */
-
                 val listaExibicao =
 
                     if (abaAtual == 0) {
@@ -1195,8 +1207,7 @@ jobs:
                 for (item in listaExibicao) {
 
                     val itemView =
-                        LayoutInflater
-                            .from(this)
+                        LayoutInflater.from(this)
                             .inflate(
                                 R.layout.item_reposicao,
                                 containerLista,
@@ -1233,43 +1244,20 @@ jobs:
                             R.id.btnApagar
                         )
 
-                    if (item.quantidade > 1) {
-
-                        tvCodigoQtd.text =
-                            item.quantidade.toString() +
-                            " cx " +
-                            item.codigoMate
-
-                    } else {
-
-                        tvCodigoQtd.text =
-                            "1 cx " +
-                            item.codigoMate
-                    }
+                    tvCodigoQtd.text =
+                        "${item.quantidade} cx ${item.codigoMate}"
 
                     tvEndereco.text =
-                        item.rua +
-                        " — Rack " +
-                        item.rack +
-                        " — Coluna " +
-                        item.coluna +
-                        " — Linha " +
-                        item.linha
-
-                    val dataStr =
-                        sdf.format(
-                            Date(item.timestamp)
-                        )
+                        "${item.rua} — Rack ${item.rack} — " +
+                        "Coluna ${item.coluna} — Linha ${item.linha}"
 
                     tvDetalhes.text =
-                        item.operador +
-                        " • " +
-                        dataStr
+                        "${item.operador} • " +
+                        sdf.format(Date(item.timestamp))
 
                     if (item.concluido) {
 
-                        tvStatusBadge.text =
-                            "Concluído"
+                        tvStatusBadge.text = "Concluído"
 
                         tvStatusBadge.setBackgroundColor(
                             Color.parseColor("#E8F5E9")
@@ -1279,26 +1267,25 @@ jobs:
                             Color.parseColor("#2E7D32")
                         )
 
-                        btnAcao.text =
-                            "DESFAZER"
+                        btnAcao.text = "DESFAZER"
 
                         btnAcao.setOnClickListener {
 
                             item.concluido = false
 
+                            # SALVA
+                            salvarRegistros()
+
                             atualizarInterface()
                         }
 
-                        btnApagar.visibility =
-                            View.VISIBLE
+                        btnApagar.visibility = View.VISIBLE
 
                         btnApagar.setOnClickListener {
 
                             AlertDialog.Builder(this)
 
-                                .setTitle(
-                                    "Excluir registro?"
-                                )
+                                .setTitle("Excluir registro?")
 
                                 .setMessage(
                                     "Esse registro será apagado permanentemente."
@@ -1315,6 +1302,9 @@ jobs:
 
                                     listaReposicao.remove(item)
 
+                                    # SALVA A EXCLUSÃO
+                                    salvarRegistros()
+
                                     Toast.makeText(
                                         this,
                                         "Registro excluído permanentemente",
@@ -1329,8 +1319,7 @@ jobs:
 
                     } else {
 
-                        tvStatusBadge.text =
-                            "Pendente"
+                        tvStatusBadge.text = "Pendente"
 
                         tvStatusBadge.setBackgroundColor(
                             Color.parseColor("#FFEBEE")
@@ -1340,30 +1329,35 @@ jobs:
                             Color.parseColor("#C62828")
                         )
 
-                        btnAcao.text =
-                            "CONCLUIR"
+                        btnAcao.text = "CONCLUIR"
 
                         btnAcao.setOnClickListener {
 
                             item.concluido = true
 
+                            # SALVA A CONCLUSÃO
+                            salvarRegistros()
+
                             atualizarInterface()
                         }
 
-                        btnApagar.visibility =
-                            View.GONE
+                        btnApagar.visibility = View.GONE
                     }
 
                     containerLista.addView(itemView)
                 }
             }
 
+            /*
+             =====================================================
+             IMPORTAR CSV
+             =====================================================
+            */
+
             private fun abrirSeletorPlanilha() {
 
                 val intent =
-                    Intent(
-                        Intent.ACTION_GET_CONTENT
-                    ).apply {
+                    Intent(Intent.ACTION_GET_CONTENT).apply {
 
                         type = "*/*"
 
@@ -1381,19 +1375,146 @@ jobs:
                 )
             }
 
+            private fun importarCSV(uri: Uri) {
+
+                try {
+
+                    val reader =
+                        BufferedReader(
+                            InputStreamReader(
+                                contentResolver.openInputStream(uri),
+                                Charsets.UTF_8
+                            )
+                        )
+
+                    var linhaArquivo: String?
+                    var primeiraLinha = true
+
+                    val novaBase =
+                        mutableMapOf<
+                            String,
+                            Quadruple<String, String, String, String>
+                        >()
+
+                    while (
+                        reader.readLine().also {
+                            linhaArquivo = it
+                        } != null
+                    ) {
+
+                        if (primeiraLinha) {
+                            primeiraLinha = false
+                            continue
+                        }
+
+                        val linha =
+                            linhaArquivo?.trim() ?: continue
+
+                        if (linha.isEmpty()) continue
+
+                        val colunas =
+                            linha.split(",")
+
+                        if (colunas.size < 6) continue
+
+                        val rua = colunas[0].trim()
+                        val rack = colunas[1].trim()
+                        val coluna = colunas[3].trim()
+                        val linhaPosicao = colunas[4].trim()
+                        val codigosTexto = colunas[5].trim()
+
+                        val endereco =
+                            Quadruple(
+                                rua,
+                                rack,
+                                coluna,
+                                linhaPosicao
+                            )
+
+                        for (
+                            codigoOriginal
+                            in codigosTexto.split(";")
+                        ) {
+
+                            val codigo =
+                                codigoOriginal
+                                    .trim()
+                                    .filter { it.isDigit() }
+
+                            if (codigo.length == 5) {
+                                novaBase[codigo] = endereco
+                            }
+                        }
+                    }
+
+                    reader.close()
+
+                    if (novaBase.isEmpty()) {
+
+                        Toast.makeText(
+                            this,
+                            "Nenhum código válido encontrado.",
+                            Toast.LENGTH_LONG
+                        ).show()
+
+                        return
+                    }
+
+                    AlertDialog.Builder(this)
+
+                        .setTitle("Atualizar base?")
+
+                        .setMessage(
+                            "Foram encontrados ${novaBase.size} códigos.\n\n" +
+                            "A base atual será substituída."
+                        )
+
+                        .setNegativeButton(
+                            "Cancelar",
+                            null
+                        )
+
+                        .setPositiveButton(
+                            "Atualizar"
+                        ) { _, _ ->
+
+                            baseEnderecos.clear()
+
+                            baseEnderecos.putAll(novaBase)
+
+                            Toast.makeText(
+                                this,
+                                "Base atualizada!",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+
+                        .show()
+
+                } catch (e: Exception) {
+
+                    Toast.makeText(
+                        this,
+                        "Erro ao importar CSV: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+
+            /*
+             =====================================================
+             EXPORTAR MODELO CSV
+             =====================================================
+            */
+
             private fun exportarPlanilhaModelo() {
 
                 val intent =
-                    Intent(
-                        Intent.ACTION_CREATE_DOCUMENT
-                    ).apply {
+                    Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
 
-                        addCategory(
-                            Intent.CATEGORY_OPENABLE
-                        )
+                        addCategory(Intent.CATEGORY_OPENABLE)
 
-                        type =
-                            "text/csv"
+                        type = "text/csv"
 
                         putExtra(
                             Intent.EXTRA_TITLE,
@@ -1407,70 +1528,69 @@ jobs:
                 )
             }
 
+            private fun gerarCSVModelo(uri: Uri) {
+
+                try {
+
+                    val writer =
+                        OutputStreamWriter(
+                            contentResolver.openOutputStream(uri)
+                        )
+
+                    writer.write(
+                        "Nome estacao,Nr Rack,Area Linha Separaçao,Linha,Coluna,Codigo Material\n"
+                    )
+
+                    writer.write(
+                        "RUA 1,1,,5,B,48303;55968\n"
+                    )
+
+                    writer.flush()
+                    writer.close()
+
+                    Toast.makeText(
+                        this,
+                        "Modelo CSV salvo!",
+                        Toast.LENGTH_LONG
+                    ).show()
+
+                } catch (e: Exception) {
+
+                    Toast.makeText(
+                        this,
+                        "Erro ao salvar modelo",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+
+            /*
+             =====================================================
+             VISUALIZAR MAPEAMENTOS
+             =====================================================
+            */
+
             private fun exibirMapeamentos() {
 
-                val sb =
-                    StringBuilder()
+                val sb = StringBuilder()
 
                 sb.append(
-                    "Total de códigos: "
+                    "Total de códigos: ${baseEnderecos.size}\n\n"
                 )
 
-                sb.append(
-                    baseEnderecos.size
-                )
+                for ((codigo, end) in baseEnderecos) {
 
-                sb.append("\n\n")
-
-                for (
-                    (codigo, end)
-                    in baseEnderecos
-                ) {
+                    sb.append("Código: $codigo\n")
 
                     sb.append(
-                        "Código: "
+                        "${end.first} — Rack ${end.second} — " +
+                        "Coluna ${end.third} — Linha ${end.fourth}\n\n"
                     )
-
-                    sb.append(codigo)
-
-                    sb.append("\n")
-
-                    sb.append(
-                        end.first
-                    )
-
-                    sb.append(
-                        " — Rack "
-                    )
-
-                    sb.append(
-                        end.second
-                    )
-
-                    sb.append(
-                        " — Coluna "
-                    )
-
-                    sb.append(
-                        end.third
-                    )
-
-                    sb.append(
-                        " — Linha "
-                    )
-
-                    sb.append(
-                        end.fourth
-                    )
-
-                    sb.append("\n\n")
                 }
 
-                val tv =
-                    TextView(this)
+                val tv = TextView(this)
 
-                tv.text =
-                    sb.toString()
+                tv.text = sb.toString()
 
                 tv.setPadding(
                     32,
@@ -1479,26 +1599,22 @@ jobs:
                     32
                 )
 
-                val scroll =
-                    ScrollView(this)
+                val scroll = ScrollView(this)
 
                 scroll.addView(tv)
 
                 AlertDialog.Builder(this)
-
-                    .setTitle(
-                        "Mapeamentos"
-                    )
-
+                    .setTitle("Mapeamentos")
                     .setView(scroll)
-
-                    .setPositiveButton(
-                        "OK",
-                        null
-                    )
-
+                    .setPositiveButton("OK", null)
                     .show()
             }
+
+            /*
+             =====================================================
+             RESULTADO DE IMPORTAÇÃO / EXPORTAÇÃO
+             =====================================================
+            */
 
             override fun onActivityResult(
                 requestCode: Int,
@@ -1517,12 +1633,8 @@ jobs:
                     resultCode == Activity.RESULT_OK
                 ) {
 
-                    val uri =
-                        data?.data
-
-                    if (uri != null) {
-
-                        importarCSV(uri)
+                    data?.data?.let {
+                        importarCSV(it)
                     }
 
                 } else if (
@@ -1530,235 +1642,17 @@ jobs:
                     resultCode == Activity.RESULT_OK
                 ) {
 
-                    val uri =
-                        data?.data
-
-                    if (uri != null) {
-
-                        gerarCSVModelo(uri)
+                    data?.data?.let {
+                        gerarCSVModelo(it)
                     }
-                }
-            }
-
-            private fun importarCSV(
-                uri: Uri
-            ) {
-
-                try {
-
-                    val inputStream =
-                        contentResolver
-                            .openInputStream(uri)
-
-                    val reader =
-                        BufferedReader(
-                            InputStreamReader(
-                                inputStream,
-                                Charsets.UTF_8
-                            )
-                        )
-
-                    var linhaArquivo: String?
-
-                    var primeiraLinha = true
-
-                    var totalCodigos = 0
-
-                    val novaBase =
-                        mutableMapOf<
-                            String,
-                            Quadruple<
-                                String,
-                                String,
-                                String,
-                                String
-                            >
-                        >()
-
-                    while (
-                        reader.readLine()
-                            .also {
-                                linhaArquivo = it
-                            } != null
-                    ) {
-
-                        if (primeiraLinha) {
-
-                            primeiraLinha = false
-
-                            continue
-                        }
-
-                        val linha =
-                            linhaArquivo?.trim()
-                                ?: continue
-
-                        if (linha.isEmpty()) {
-                            continue
-                        }
-
-                        val colunas =
-                            linha.split(",")
-
-                        if (colunas.size < 6) {
-                            continue
-                        }
-
-                        val rua =
-                            colunas[0].trim()
-
-                        val rack =
-                            colunas[1].trim()
-
-                        val colunaApp =
-                            colunas[3].trim()
-
-                        val linhaApp =
-                            colunas[4].trim()
-
-                        val codigosTexto =
-                            colunas[5].trim()
-
-                        val endereco =
-                            Quadruple(
-                                rua,
-                                rack,
-                                colunaApp,
-                                linhaApp
-                            )
-
-                        val codigos =
-                            codigosTexto.split(";")
-
-                        for (codigoOriginal in codigos) {
-
-                            val codigo =
-                                codigoOriginal
-                                    .trim()
-                                    .filter {
-                                        it.isDigit()
-                                    }
-
-                            if (
-                                codigo.length == 5
-                            ) {
-
-                                novaBase[codigo] =
-                                    endereco
-
-                                totalCodigos++
-                            }
-                        }
-                    }
-
-                    reader.close()
-
-                    if (
-                        novaBase.isEmpty()
-                    ) {
-
-                        Toast.makeText(
-                            this,
-                            "Nenhum código válido foi encontrado na planilha.",
-                            Toast.LENGTH_LONG
-                        ).show()
-
-                        return
-                    }
-
-                    AlertDialog.Builder(this)
-
-                        .setTitle(
-                            "Atualizar base?"
-                        )
-
-                        .setMessage(
-                            "Foram encontrados $totalCodigos códigos.\n\n" +
-                            "A base atual será substituída."
-                        )
-
-                        .setNegativeButton(
-                            "Cancelar",
-                            null
-                        )
-
-                        .setPositiveButton(
-                            "Atualizar"
-                        ) { _, _ ->
-
-                            baseEnderecos.clear()
-
-                            baseEnderecos.putAll(
-                                novaBase
-                            )
-
-                            Toast.makeText(
-                                this,
-                                "Base atualizada com $totalCodigos códigos.",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
-
-                        .show()
-
-                } catch (e: Exception) {
-
-                    Toast.makeText(
-                        this,
-                        "Erro ao importar CSV: ${e.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
-
-            private fun gerarCSVModelo(
-                uri: Uri
-            ) {
-
-                try {
-
-                    val outputStream =
-                        contentResolver
-                            .openOutputStream(uri)
-
-                    val writer =
-                        OutputStreamWriter(
-                            outputStream
-                        )
-
-                    writer.write(
-                        "Nome estacao,Nr Rack,Area Linha Separaçao,Linha,Coluna,Codigo Material\n"
-                    )
-
-                    writer.write(
-                        "RUA 1,1,,5,B,48303;55968\n"
-                    )
-
-                    writer.write(
-                        "RUA 2,3,,2,A,47950\n"
-                    )
-
-                    writer.flush()
-
-                    writer.close()
-
-                    Toast.makeText(
-                        this,
-                        "Modelo CSV salvo com sucesso!",
-                        Toast.LENGTH_LONG
-                    ).show()
-
-                } catch (e: Exception) {
-
-                    Toast.makeText(
-                        this,
-                        "Erro ao salvar modelo: ${e.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
                 }
             }
         }
         EOF
+
+    - name: Corrigir comentários inválidos do Kotlin
+      run: |
+        sed -i 's/^[[:space:]]*# /            \/\/ /' app/src/main/java/com/separacao/bip/MainActivity.kt
 
     - name: Configurar Gradle Wrapper
       run: |
