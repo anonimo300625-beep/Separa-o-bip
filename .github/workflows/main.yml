@@ -1499,10 +1499,6 @@ jobs:
                       return
                   }
 
-                  // CONFIRMAÇÃO:
-                  // Vibra quando o produto é encontrado.
-                  // NÃO existe som de confirmação.
-
                   vibrarConfirmacao()
 
                   tvFeedback.text =
@@ -1846,7 +1842,6 @@ jobs:
 
                               atualizarInterface()
                           }
-
                           .show()
 
                       return
@@ -1899,6 +1894,7 @@ jobs:
 
                   atualizarInterface()
               }
+
               private fun atualizarInterface() {
 
                   if (modoConsulta) {
