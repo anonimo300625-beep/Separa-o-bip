@@ -91,8 +91,8 @@ jobs:
                   applicationId "com.separacao.bip"
                   minSdk 24
                   targetSdk 34
-                  versionCode 9
-                  versionName "9.0"
+                  versionCode 10
+                  versionName "10.0"
               }
 
               compileOptions {
@@ -583,17 +583,26 @@ jobs:
                       android:layout_height="wrap_content"
                       android:layout_weight="1"
                       android:textColor="#1565C0"
-                      android:textSize="22sp"
+                      android:textSize="20sp"
                       android:textStyle="bold"/>
+
+                  <ImageButton
+                      android:id="@+id/btnCopiar"
+                      android:layout_width="38dp"
+                      android:layout_height="38dp"
+                      android:layout_marginEnd="8dp"
+                      android:background="?android:attr/selectableItemBackgroundBorderless"
+                      android:src="@android:drawable/ic_menu_copy"
+                      android:contentDescription="Copiar código"/>
 
                   <TextView
                       android:id="@+id/tvStatus"
                       android:layout_width="wrap_content"
                       android:layout_height="wrap_content"
-                      android:paddingStart="10dp"
-                      android:paddingTop="7dp"
-                      android:paddingEnd="10dp"
-                      android:paddingBottom="7dp"
+                      android:paddingStart="8dp"
+                      android:paddingTop="6dp"
+                      android:paddingEnd="8dp"
+                      android:paddingBottom="6dp"
                       android:textStyle="bold"
                       android:textSize="11sp"/>
 
@@ -616,7 +625,7 @@ jobs:
                   android:padding="10dp"
                   android:background="#E3F2FD"
                   android:textColor="#1565C0"
-                  android:textSize="16sp"
+                  android:textSize="15sp"
                   android:textStyle="bold"/>
 
               <TextView
@@ -645,8 +654,7 @@ jobs:
                       android:layout_width="wrap_content"
                       android:layout_height="48dp"
                       android:layout_marginStart="6dp"
-                      android:text="EXCLUIR"
-                      android:visibility="gone"/>
+                      android:text="EXCLUIR"/>
 
               </LinearLayout>
 
@@ -719,6 +727,8 @@ jobs:
           import android.Manifest
           import android.app.Activity
           import android.app.AlertDialog
+          import android.content.ClipData
+          import android.content.ClipboardManager
           import android.content.Context
           import android.content.Intent
           import android.content.pm.PackageManager
@@ -1549,6 +1559,13 @@ jobs:
                   }
               }
 
+              private fun copiarParaClipboard(texto: String) {
+                  val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                  val clip = ClipData.newPlainText("Código", texto)
+                  clipboard.setPrimaryClip(clip)
+                  Toast.makeText(this, "Código $texto copiado!", Toast.LENGTH_SHORT).show()
+              }
+
               // =========================================================
               // CONSULTAS
               // =========================================================
@@ -1635,6 +1652,10 @@ jobs:
 
                       card.layoutParams = params
 
+                      val topoLinha = LinearLayout(this)
+                      topoLinha.orientation = LinearLayout.HORIZONTAL
+                      topoLinha.gravity = android.view.Gravity.CENTER_VERTICAL
+
                       val tvCodigo =
                           TextView(this)
 
@@ -1652,7 +1673,21 @@ jobs:
                           android.graphics.Typeface.BOLD
                       )
 
-                      card.addView(tvCodigo)
+                      val codigoParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                      tvCodigo.layoutParams = codigoParams
+                      topoLinha.addView(tvCodigo)
+
+                      val btnCopiarConsulta = ImageButton(this)
+                      btnCopiarConsulta.setImageResource(android.R.drawable.ic_menu_copy)
+                      btnCopiarConsulta.background = ContextCompat.getDrawable(this, android.R.drawable.screen_background_dark_transparent)
+                      val btnCopiarParams = LinearLayout.LayoutParams(38, 38)
+                      btnCopiarParams.marginEnd = 8
+                      btnCopiarConsulta.layoutParams = btnCopiarParams
+                      btnCopiarConsulta.setOnClickListener {
+                          copiarParaClipboard(consulta.codigo)
+                      }
+                      topoLinha.addView(btnCopiarConsulta)
+                      card.addView(topoLinha)
 
                       if (produto == null) {
 
@@ -1721,10 +1756,10 @@ jobs:
                           TextView(this)
 
                       tvEndereco.text =
-                          "${formatarRua(produto.rua)}\n" +
-                          "${formatarRack(produto.rack)}\n" +
-                          "Coluna ${produto.coluna}\n" +
-                          "Linha ${produto.linha}"
+                          "${produto.rua}\n" +
+                          "${produto.rack}\n" +
+                          "Linha ${produto.linha}\n" +
+                          "Coluna ${produto.coluna}"
 
                       tvEndereco.textSize = 17f
 
@@ -1949,11 +1984,11 @@ jobs:
 
                               }.thenBy {
 
-                                  numeroOuTexto(it.coluna)
+                                  numeroOuTexto(it.linha)
 
                               }.thenBy {
 
-                                  numeroOuTexto(it.linha)
+                                  numeroOuTexto(it.coluna)
 
                               }
                           )
@@ -2097,6 +2132,11 @@ jobs:
                           R.id.tvCodigo
                       )
 
+                  val btnCopiar =
+                      card.findViewById<ImageButton>(
+                          R.id.btnCopiar
+                      )
+
                   val tvStatus =
                       card.findViewById<TextView>(
                           R.id.tvStatus
@@ -2134,10 +2174,10 @@ jobs:
                       item.descricao
 
                   tvEndereco.text =
-                      "${formatarRua(item.rua)} • " +
-                      "${formatarRack(item.rack)} • " +
-                      "Coluna ${item.coluna} • " +
-                      "Linha ${item.linha}"
+                      "${item.rua} • " +
+                      "${item.rack} • " +
+                      "Linha ${item.linha} • " +
+                      "Coluna ${item.coluna}"
 
                   val dataFormatada =
                       SimpleDateFormat(
@@ -2187,6 +2227,10 @@ jobs:
 
                       btnExcluir.visibility =
                           View.VISIBLE
+                  }
+
+                  btnCopiar.setOnClickListener {
+                      copiarParaClipboard(item.codigo)
                   }
 
                   btnAcao.setOnClickListener {
@@ -2283,48 +2327,6 @@ jobs:
                           atualizarInterface()
                       }
                       .show()
-              }
-
-              // =========================================================
-              // FORMATAÇÃO DE ENDEREÇOS
-              // =========================================================
-
-              private fun formatarRua(
-                  rua: String
-              ): String {
-
-                  val limpa = rua.trim()
-
-                  if (limpa.isBlank()) {
-                      return "Rua não informada"
-                  }
-
-                  val numeros = limpa.filter { it.isDigit() }
-
-                  return if (numeros.isNotEmpty()) {
-                      "Rua $numeros"
-                  } else {
-                      limpa
-                  }
-              }
-
-              private fun formatarRack(
-                  rack: String
-              ): String {
-
-                  val limpa = rack.trim()
-
-                  if (limpa.isBlank()) {
-                      return "Rack não informado"
-                  }
-
-                  val numeros = limpa.filter { it.isDigit() }
-
-                  return if (numeros.isNotEmpty()) {
-                      "Rack $numeros"
-                  } else {
-                      limpa
-                  }
               }
 
               private fun numeroOuTexto(
@@ -3012,7 +3014,7 @@ jobs:
                               it.value.trim()
                           }
 
-                  if (valores.size < 2) {
+                  if (valores.size < 8) {
 
                       return
                   }
@@ -3033,15 +3035,10 @@ jobs:
                       valores.getOrNull(1)
                           ?: ""
 
-                  val ruaBruta = valores.getOrNull(2) ?: ""
-                  val rackBruto = valores.getOrNull(3) ?: ""
-                  val colunaBruta = valores.getOrNull(4) ?: ""
-                  val linhaBruta = valores.getOrNull(5) ?: ""
-
-                  val rua = ruaBruta.split(Regex("(?i)\\b(rack|coluna|linha|rua)\\b")).first().trim()
-                  val rack = rackBruto.split(Regex("(?i)\\b(coluna|linha|rua|rack)\\b")).first().trim()
-                  val coluna = colunaBruta.split(Regex("(?i)\\b(linha|rua|rack|coluna)\\b")).first().trim()
-                  val linhaProduto = linhaBruta.split(Regex("(?i)\\b(rua|rack|coluna|linha)\\b")).first().trim()
+                  val rua = valores.getOrNull(4) ?: ""
+                  val rack = valores.getOrNull(5) ?: ""
+                  val linhaProd = valores.getOrNull(6) ?: ""
+                  val colunaProd = valores.getOrNull(7) ?: ""
 
                   baseProdutos[codigo] =
                       EnderecoProduto(
@@ -3058,10 +3055,10 @@ jobs:
                               rack,
 
                           coluna =
-                              coluna,
+                              colunaProd,
 
                           linha =
-                              linhaProduto
+                              linhaProd
                       )
               }
 
