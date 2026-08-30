@@ -1942,7 +1942,8 @@ jobs:
 
                   atualizarInterface()
               }
-                 private fun atualizarInterface() {
+
+              private fun atualizarInterface() {
 
                   if (modoConsulta) {
                       atualizarConsultas()
