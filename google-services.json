@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1086384197571",
+    "project_id": "separacao-bip",
+    "storage_bucket": "separacao-bip.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1086384197571:android:a34ae6a058373538f0f776",
+        "android_client_info": {
+          "package_name": "com.separacao.bip"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBQiTs-c62i-SNWI0Wz-2kS1yJUJsmWK2E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
