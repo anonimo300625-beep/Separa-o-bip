@@ -1941,8 +1941,7 @@ jobs:
                       View.VISIBLE
 
                   atualizarInterface()
-              }
-              private fun atualizarInterface() {
+              }              private fun atualizarInterface() {
 
                   if (modoConsulta) {
                       atualizarConsultas()
@@ -2605,4 +2604,765 @@ jobs:
                       .show()
               }
 
-              privat
+              private fun mostrarInformacoes() {
+
+                  AlertDialog.Builder(this)
+                      .setTitle(
+                          "Sobre o aplicativo"
+                      )
+                      .setMessage(
+                          "Registro de Reposição\n\n" +
+                          "• Bipagem manual ou por bipador\n" +
+                          "• Consulta rápida de endereços\n" +
+                          "• Scanner pela câmera\n" +
+                          "• Vibração ao encontrar produto\n" +
+                          "• Sem som de confirmação\n" +
+                          "• Controle de pendentes e concluídos\n" +
+                          "• Importação de nova planilha\n" +
+                          "• Sincronização automática com Firebase\n\n" +
+                          "Produtos carregados: ${baseProdutos.size}"
+                      )
+                      .setPositiveButton(
+                          "OK",
+                          null
+                      )
+                      .show()
+              }
+
+              private fun carregarBaseEnderecos() {
+
+                  try {
+
+                      baseProdutos.clear()
+
+                      val arquivoInterno =
+                          File(
+                              filesDir,
+                              PLANILHA_INTERNA
+                          )
+
+                      if (arquivoInterno.exists()) {
+
+                          FileInputStream(arquivoInterno)
+                              .use { input ->
+                                  lerPlanilhaXlsx(input)
+                              }
+
+                      } else {
+
+                          assets
+                              .open("enderecos.xlsx")
+                              .use { input ->
+                                  lerPlanilhaXlsx(input)
+                              }
+                      }
+
+                  } catch (e: Exception) {
+
+                      Toast.makeText(
+                          this,
+                          "Erro ao carregar a planilha de endereços.",
+                          Toast.LENGTH_LONG
+                      ).show()
+                  }
+              }
+
+              private fun lerPlanilhaXlsx(
+                  inputStream: InputStream
+              ) {
+
+                  val arquivoTemporario =
+                      File(
+                          cacheDir,
+                          "planilha_temp.xlsx"
+                      )
+
+                  FileOutputStream(arquivoTemporario)
+                      .use { output ->
+                          inputStream.copyTo(output)
+                      }
+
+                  ZipFile(arquivoTemporario)
+                      .use { zip ->
+
+                          val sharedStrings =
+                              carregarSharedStrings(zip)
+
+                          val sheetEntry =
+                              encontrarPrimeiraPlanilha(zip)
+
+                          if (sheetEntry == null) {
+                              return
+                          }
+
+                          zip.getInputStream(sheetEntry)
+                              .use { sheetInput ->
+                                  lerSheet(
+                                      sheetInput,
+                                      sharedStrings
+                                  )
+                              }
+                      }
+
+                  arquivoTemporario.delete()
+              }
+
+              private fun encontrarPrimeiraPlanilha(
+                  zip: ZipFile
+              ): java.util.zip.ZipEntry? {
+
+                  return zip.entries()
+                      .asSequence()
+                      .firstOrNull {
+                          it.name.startsWith(
+                              "xl/worksheets/sheet"
+                          ) &&
+                          it.name.endsWith(
+                              ".xml"
+                          )
+                      }
+              }
+
+              private fun carregarSharedStrings(
+                  zip: ZipFile
+              ): List<String> {
+
+                  val entry =
+                      zip.getEntry(
+                          "xl/sharedStrings.xml"
+                      ) ?: return emptyList()
+
+                  val lista =
+                      mutableListOf<String>()
+
+                  zip.getInputStream(entry)
+                      .use { input ->
+
+                          val parser =
+                              Xml.newPullParser()
+
+                          parser.setInput(
+                              input,
+                              "UTF-8"
+                          )
+
+                          var dentroDeTexto =
+                              false
+
+                          var textoAtual =
+                              StringBuilder()
+
+                          while (
+                              parser.eventType !=
+                              XmlPullParser.END_DOCUMENT
+                          ) {
+
+                              when (
+                                  parser.eventType
+                              ) {
+
+                                  XmlPullParser.START_TAG -> {
+
+                                      if (
+                                          parser.name == "si"
+                                      ) {
+                                          textoAtual =
+                                              StringBuilder()
+                                      }
+
+                                      if (
+                                          parser.name == "t"
+                                      ) {
+                                          dentroDeTexto =
+                                              true
+                                      }
+                                  }
+
+                                  XmlPullParser.TEXT -> {
+
+                                      if (
+                                          dentroDeTexto
+                                      ) {
+                                          textoAtual.append(
+                                              parser.text
+                                          )
+                                      }
+                                  }
+
+                                  XmlPullParser.END_TAG -> {
+
+                                      if (
+                                          parser.name == "t"
+                                      ) {
+                                          dentroDeTexto =
+                                              false
+                                      }
+
+                                      if (
+                                          parser.name == "si"
+                                      ) {
+                                          lista.add(
+                                              textoAtual.toString()
+                                          )
+                                      }
+                                  }
+                              }
+
+                              parser.next()
+                          }
+                      }
+
+                  return lista
+              }
+
+              private fun lerSheet(
+                  inputStream: InputStream,
+                  sharedStrings: List<String>
+              ) {
+
+                  val parser =
+                      Xml.newPullParser()
+
+                  parser.setInput(
+                      inputStream,
+                      "UTF-8"
+                  )
+
+                  var linha =
+                      mutableMapOf<String, String>()
+
+                  var referenciaAtual =
+                      ""
+
+                  var tipoAtual =
+                      ""
+
+                  var dentroDeValor =
+                      false
+
+                  var valorAtual =
+                      StringBuilder()
+
+                  var primeiraLinha =
+                      true
+
+                  while (
+                      parser.eventType !=
+                      XmlPullParser.END_DOCUMENT
+                  ) {
+
+                      when (
+                          parser.eventType
+                      ) {
+
+                          XmlPullParser.START_TAG -> {
+
+                              when (
+                                  parser.name
+                              ) {
+
+                                  "row" -> {
+                                      linha =
+                                          mutableMapOf()
+                                  }
+
+                                  "c" -> {
+
+                                      referenciaAtual =
+                                          parser.getAttributeValue(
+                                              null,
+                                              "r"
+                                          ) ?: ""
+
+                                      tipoAtual =
+                                          parser.getAttributeValue(
+                                              null,
+                                              "t"
+                                          ) ?: ""
+
+                                      valorAtual =
+                                          StringBuilder()
+                                  }
+
+                                  "v" -> {
+                                      dentroDeValor =
+                                          true
+                                  }
+
+                                  "t" -> {
+
+                                      if (
+                                          tipoAtual == "inlineStr"
+                                      ) {
+                                          dentroDeValor =
+                                              true
+                                      }
+                                  }
+                              }
+                          }
+
+                          XmlPullParser.TEXT -> {
+
+                              if (
+                                  dentroDeValor
+                              ) {
+
+                                  valorAtual.append(
+                                      parser.text
+                                  )
+                              }
+                          }
+
+                          XmlPullParser.END_TAG -> {
+
+                              when (
+                                  parser.name
+                              ) {
+
+                                  "v",
+                                  "t" -> {
+                                      dentroDeValor =
+                                          false
+                                  }
+
+                                  "c" -> {
+
+                                      val coluna =
+                                          referenciaAtual.filter {
+                                              it.isLetter()
+                                          }
+
+                                      var valor =
+                                          valorAtual
+                                              .toString()
+                                              .trim()
+
+                                      if (
+                                          tipoAtual == "s"
+                                      ) {
+
+                                          val indice =
+                                              valor.toIntOrNull()
+
+                                          if (
+                                              indice != null &&
+                                              indice in sharedStrings.indices
+                                          ) {
+
+                                              valor =
+                                                  sharedStrings[indice]
+                                          }
+                                      }
+
+                                      linha[coluna] =
+                                          valor
+                                  }
+
+                                  "row" -> {
+
+                                      if (primeiraLinha) {
+
+                                          primeiraLinha =
+                                              false
+
+                                      } else {
+
+                                          processarLinhaPlanilha(
+                                              linha
+                                          )
+                                      }
+                                  }
+                              }
+                          }
+                      }
+
+                      parser.next()
+                  }
+              }
+
+              private fun processarLinhaPlanilha(
+                  linha: Map<String, String>
+              ) {
+
+                  if (linha.isEmpty()) {
+                      return
+                  }
+
+                  val valores =
+                      linha.entries
+                          .sortedBy {
+                              colunaParaNumero(
+                                  it.key
+                              )
+                          }
+                          .map {
+                              it.value.trim()
+                          }
+
+                  if (valores.size < 8) {
+                      return
+                  }
+
+                  val codigo =
+                      valores
+                          .getOrNull(0)
+                          ?.filter {
+                              it.isDigit()
+                          } ?: ""
+
+                  if (codigo.length != 5) {
+                      return
+                  }
+
+                  val descricao =
+                      valores.getOrNull(1) ?: ""
+
+                  val rua =
+                      valores.getOrNull(4) ?: ""
+
+                  val rack =
+                      valores.getOrNull(5) ?: ""
+
+                  val linhaProd =
+                      valores.getOrNull(6) ?: ""
+
+                  val colunaProd =
+                      valores.getOrNull(7) ?: ""
+
+                  baseProdutos[codigo] =
+                      EnderecoProduto(
+                          codigo = codigo,
+                          descricao = descricao,
+                          rua = rua,
+                          rack = rack,
+                          coluna = colunaProd,
+                          linha = linhaProd
+                      )
+              }
+
+              private fun colunaParaNumero(
+                  coluna: String
+              ): Int {
+
+                  var resultado =
+                      0
+
+                  for (
+                      caractere in coluna.uppercase()
+                  ) {
+
+                      resultado =
+                          resultado * 26 +
+                          (
+                              caractere.code -
+                              'A'.code +
+                              1
+                          )
+                  }
+
+                  return resultado
+              }
+
+              private fun salvarRegistros() {
+
+                  try {
+
+                      val array =
+                          JSONArray()
+
+                      for (item in registros) {
+
+                          val objeto =
+                              JSONObject()
+
+                          objeto.put(
+                              "id",
+                              item.id
+                          )
+
+                          objeto.put(
+                              "codigo",
+                              item.codigo
+                          )
+
+                          objeto.put(
+                              "descricao",
+                              item.descricao
+                          )
+
+                          objeto.put(
+                              "quantidade",
+                              item.quantidade
+                          )
+
+                          objeto.put(
+                              "rua",
+                              item.rua
+                          )
+
+                          objeto.put(
+                              "rack",
+                              item.rack
+                          )
+
+                          objeto.put(
+                              "coluna",
+                              item.coluna
+                          )
+
+                          objeto.put(
+                              "linha",
+                              item.linha
+                          )
+
+                          objeto.put(
+                              "operador",
+                              item.operador
+                          )
+
+                          objeto.put(
+                              "timestamp",
+                              item.timestamp
+                          )
+
+                          objeto.put(
+                              "concluido",
+                              item.concluido
+                          )
+
+                          array.put(objeto)
+                      }
+
+                      getSharedPreferences(
+                          PREFS,
+                          Context.MODE_PRIVATE
+                      )
+                          .edit()
+                          .putString(
+                              KEY_REGISTROS,
+                              array.toString()
+                          )
+                          .apply()
+
+                  } catch (_: Exception) {
+                  }
+              }
+
+              private fun carregarRegistros() {
+
+                  try {
+
+                      registros.clear()
+
+                      val texto =
+                          getSharedPreferences(
+                              PREFS,
+                              Context.MODE_PRIVATE
+                          )
+                              .getString(
+                                  KEY_REGISTROS,
+                                  null
+                              ) ?: return
+
+                      val array =
+                          JSONArray(texto)
+
+                      for (
+                          i in 0 until array.length()
+                      ) {
+
+                          val objeto =
+                              array.getJSONObject(i)
+
+                          registros.add(
+                              ItemReposicao(
+
+                                  id =
+                                      objeto.optString(
+                                          "id",
+                                          UUID.randomUUID().toString()
+                                      ),
+
+                                  codigo =
+                                      objeto.optString(
+                                          "codigo",
+                                          ""
+                                      ),
+
+                                  descricao =
+                                      objeto.optString(
+                                          "descricao",
+                                          ""
+                                      ),
+
+                                  quantidade =
+                                      objeto.optInt(
+                                          "quantidade",
+                                          1
+                                      ),
+
+                                  rua =
+                                      objeto.optString(
+                                          "rua",
+                                          ""
+                                      ),
+
+                                  rack =
+                                      objeto.optString(
+                                          "rack",
+                                          ""
+                                      ),
+
+                                  coluna =
+                                      objeto.optString(
+                                          "coluna",
+                                          ""
+                                      ),
+
+                                  linha =
+                                      objeto.optString(
+                                          "linha",
+                                          ""
+                                      ),
+
+                                  operador =
+                                      objeto.optString(
+                                          "operador",
+                                          "Operador 1"
+                                      ),
+
+                                  timestamp =
+                                      objeto.optLong(
+                                          "timestamp",
+                                          System.currentTimeMillis()
+                                      ),
+
+                                  concluido =
+                                      objeto.optBoolean(
+                                          "concluido",
+                                          false
+                                      )
+                              )
+                          )
+                      }
+
+                  } catch (_: Exception) {
+                  }
+              }
+
+              private fun salvarConsultas() {
+
+                  try {
+
+                      val array =
+                          JSONArray()
+
+                      for (consulta in consultas) {
+
+                          val objeto =
+                              JSONObject()
+
+                          objeto.put(
+                              "codigo",
+                              consulta.codigo
+                          )
+
+                          objeto.put(
+                              "timestamp",
+                              consulta.timestamp
+                          )
+
+                          array.put(objeto)
+                      }
+
+                      getSharedPreferences(
+                          PREFS,
+                          Context.MODE_PRIVATE
+                      )
+                          .edit()
+                          .putString(
+                              KEY_CONSULTAS,
+                              array.toString()
+                          )
+                          .apply()
+
+                  } catch (_: Exception) {
+                  }
+              }
+
+              private fun carregarConsultas() {
+
+                  try {
+
+                      consultas.clear()
+
+                      val texto =
+                          getSharedPreferences(
+                              PREFS,
+                              Context.MODE_PRIVATE
+                          )
+                              .getString(
+                                  KEY_CONSULTAS,
+                                  null
+                              ) ?: return
+
+                      val array =
+                          JSONArray(texto)
+
+                      for (
+                          i in 0 until array.length()
+                      ) {
+
+                          val objeto =
+                              array.getJSONObject(i)
+
+                          consultas.add(
+                              ItemConsulta(
+                                  codigo =
+                                      objeto.optString(
+                                          "codigo",
+                                          ""
+                                      ),
+
+                                  timestamp =
+                                      objeto.optLong(
+                                          "timestamp",
+                                          System.currentTimeMillis()
+                                      )
+                              )
+                          )
+                      }
+
+                  } catch (_: Exception) {
+                  }
+              }
+
+              override fun onDestroy() {
+
+                  super.onDestroy()
+
+                  firestoreListener?.remove()
+
+                  pararCamera()
+              }
+          }
+          EOF
+
+      - name: Criar APK
+        run: |
+          chmod +x gradlew 2>/dev/null || true
+
+          if [ ! -f gradlew ]; then
+            gradle wrapper --gradle-version 8.2
+          fi
+
+          chmod +x gradlew
+
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Disponibilizar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Reposicao-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
