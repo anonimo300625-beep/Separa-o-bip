@@ -1,0 +1,123 @@
+name: Testar Firebase - Secret e Permissões
+
+on:
+  workflow_dispatch:
+
+jobs:
+  testar-firebase:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar código do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Criar projeto de teste
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+          if [ -z "${FIREBASE_SERVICE_ACCOUNT_JSON:-}" ]; then
+            echo "::error::O Secret FIREBASE_SERVICE_ACCOUNT_JSON não foi encontrado."
+            exit 1
+          fi
+          mkdir -p firebase-test
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > firebase-test/service-account.json
+          node -e '
+            const fs = require("fs");
+            const p = "firebase-test/service-account.json";
+            let data;
+            try { data = JSON.parse(fs.readFileSync(p, "utf8")); }
+            catch (e) { console.error("::error::O Secret não contém um JSON válido."); process.exit(1); }
+            const obrigatorios = ["type", "project_id", "private_key", "client_email"];
+            const faltantes = obrigatorios.filter(k => !data[k]);
+            if (faltantes.length) { console.error("::error::O JSON está sem campos obrigatórios: " + faltantes.join(", ")); process.exit(1); }
+            if (data.type !== "service_account") { console.error("::error::O JSON não parece ser de uma conta de serviço."); process.exit(1); }
+            console.log("✓ Secret encontrado e JSON válido.");
+            console.log("✓ Project ID identificado: " + data.project_id);
+            console.log("✓ Conta de serviço identificada: " + data.client_email);
+          '
+          chmod 600 firebase-test/service-account.json
+
+      - name: Instalar Firebase Admin SDK
+        working-directory: firebase-test
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install firebase-admin google-auth-library
+
+      - name: Criar teste de acesso
+        working-directory: firebase-test
+        shell: bash
+        run: |
+          cat > test-firebase.js <<'JS'
+          const fs = require("fs");
+          const { initializeApp, cert } = require("firebase-admin/app");
+          const { getFirestore } = require("firebase-admin/firestore");
+          const { GoogleAuth } = require("google-auth-library");
+
+          async function main() {
+            const serviceAccount = JSON.parse(fs.readFileSync("service-account.json", "utf8"));
+            const app = initializeApp({ credential: cert(serviceAccount), projectId: serviceAccount.project_id });
+            console.log("");
+            console.log("=== TESTE FIREBASE ===");
+            console.log("Projeto:", serviceAccount.project_id);
+            console.log("Conta:", serviceAccount.client_email);
+            console.log("");
+
+            const db = getFirestore(app);
+            console.log("1/2 Testando leitura do Firestore...");
+            await db.collection("reposicoes").limit(1).get();
+            console.log("✓ Firestore: leitura autorizada.");
+            console.log("  Coleção testada: reposicoes");
+
+            console.log("");
+            console.log("2/2 Testando permissão FCM...");
+            const auth = new GoogleAuth({ credentials: serviceAccount, scopes: ["https://www.googleapis.com/auth/cloud-platform"] });
+            const client = await auth.getClient();
+            const accessTokenResult = await client.getAccessToken();
+            const accessToken = typeof accessTokenResult === "string" ? accessTokenResult : accessTokenResult.token;
+            if (!accessToken) throw new Error("Não foi possível obter um token OAuth para testar o FCM.");
+
+            const url = `https://cloudresourcemanager.googleapis.com/v1/projects/${encodeURIComponent(serviceAccount.project_id)}:testIamPermissions`;
+            const response = await fetch(url, {
+              method: "POST",
+              headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ permissions: ["cloudmessaging.messages.create"] })
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(`Falha ao consultar permissões IAM (${response.status}): ${JSON.stringify(result)}`);
+            const permissions = result.permissions || [];
+            if (!permissions.includes("cloudmessaging.messages.create")) {
+              console.error("Permissões retornadas:", permissions);
+              throw new Error("A conta não possui a permissão cloudmessaging.messages.create.");
+            }
+            console.log("✓ FCM: permissão cloudmessaging.messages.create autorizada.");
+            console.log("  Nenhuma notificação foi enviada.");
+            console.log("");
+            console.log("================================");
+            console.log("✓ TESTE FIREBASE APROVADO");
+            console.log("✓ Secret válido");
+            console.log("✓ Firestore acessível");
+            console.log("✓ FCM autorizado");
+            console.log("================================");
+          }
+          main().catch((error) => { console.error(""); console.error("✗ TESTE FIREBASE FALHOU"); console.error(error.message || error); process.exit(1); });
+          JS
+
+      - name: Executar teste
+        working-directory: firebase-test
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/firebase-test/service-account.json
+        run: node test-firebase.js
+
+      - name: Remover credencial
+        if: always()
+        shell: bash
+        run: |
+          rm -f firebase-test/service-account.json
+          echo "✓ Credencial temporária removida do runner."
