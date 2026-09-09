@@ -1,0 +1,184 @@
+name: Notificações FCM - V2.5 (gratuita)
+
+# Verifica novas reposições pendentes e envia FCM sem Cloud Functions/Blaze.
+# O repositório atual é público, então runners padrão do GitHub Actions são gratuitos.
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notificacoes-fcm
+  cancel-in-progress: true
+
+jobs:
+  enviar-notificacoes:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar Firebase Admin SDK
+        run: npm install --no-save firebase-admin@14.3.0
+
+      - name: Verificar e enviar notificações
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ]; then
+            echo "ERRO: crie o Secret FIREBASE_SERVICE_ACCOUNT_JSON no GitHub."
+            exit 1
+          fi
+
+          node <<'NODE'
+          const admin = require('firebase-admin');
+
+          const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+          let serviceAccount;
+
+          try {
+            serviceAccount = JSON.parse(raw);
+          } catch (error) {
+            console.error('ERRO: FIREBASE_SERVICE_ACCOUNT_JSON não contém JSON válido.');
+            process.exit(1);
+          }
+
+          admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount),
+            projectId: serviceAccount.project_id,
+          });
+
+          const db = admin.firestore();
+          const messaging = admin.messaging();
+
+          async function enviarEmLotes(tokens, payload) {
+            let sucesso = 0;
+            const invalidos = [];
+
+            for (let inicio = 0; inicio < tokens.length; inicio += 500) {
+              const lote = tokens.slice(inicio, inicio + 500);
+              const resposta = await messaging.sendEachForMulticast({
+                tokens: lote.map(item => item.token),
+                notification: payload.notification,
+                data: payload.data,
+                android: payload.android,
+              });
+
+              sucesso += resposta.successCount;
+
+              resposta.responses.forEach((resultado, index) => {
+                if (!resultado.success) {
+                  const codigo = resultado.error?.code || '';
+                  if (
+                    codigo === 'messaging/registration-token-not-registered' ||
+                    codigo === 'messaging/invalid-registration-token'
+                  ) {
+                    invalidos.push(lote[index]);
+                  }
+                  console.log(`FCM falhou para ${lote[index].dispositivo}: ${codigo}`);
+                }
+              });
+            }
+
+            for (const item of invalidos) {
+              try {
+                await db.collection('dispositivos_notificacao')
+                  .doc(item.id)
+                  .delete();
+              } catch (error) {
+                console.log(`Não foi possível remover token inválido ${item.id}: ${error.message}`);
+              }
+            }
+
+            return sucesso;
+          }
+
+          async function principal() {
+            const [reposicoes, dispositivos] = await Promise.all([
+              db.collection('reposicoes')
+                .where('status', '==', 'pendente')
+                .get(),
+              db.collection('dispositivos_notificacao').get(),
+            ]);
+
+            const tokens = dispositivos.docs
+              .map(doc => ({
+                id: doc.id,
+                dispositivo: doc.get('dispositivo') || doc.id,
+                token: doc.get('token') || '',
+              }))
+              .filter(item => item.token);
+
+            console.log(`Reposições pendentes encontradas: ${reposicoes.size}`);
+            console.log(`Dispositivos FCM registrados: ${tokens.length}`);
+
+            for (const doc of reposicoes.docs) {
+              const item = doc.data();
+
+              if (item.notificacaoEnviada === true) {
+                continue;
+              }
+
+              const criador = item.dispositivo || '';
+              const destinatarios = tokens.filter(itemToken => itemToken.dispositivo !== criador);
+
+              if (destinatarios.length === 0) {
+                console.log(`Aguardando destinatários para ${doc.id}.`);
+                continue;
+              }
+
+              const endereco = [item.rua, item.rack]
+                .filter(Boolean)
+                .join(' — ') || 'Sem endereço cadastrado';
+
+              const codigo = item.codigo || '';
+              const descricao = item.descricao || 'Produto';
+
+              const sucesso = await enviarEmLotes(destinatarios, {
+                notification: {
+                  title: 'Nova reposição pendente',
+                  body: `Código ${codigo} — ${descricao}`,
+                },
+                data: {
+                  tipo: 'nova_reposicao',
+                  id: doc.id,
+                  codigo: String(codigo),
+                  descricao: String(descricao),
+                  endereco: String(endereco),
+                },
+                android: {
+                  priority: 'high',
+                  notification: {
+                    channelId: 'novas_reposicoes',
+                  },
+                },
+              });
+
+              if (sucesso > 0) {
+                await doc.ref.set({
+                  notificacaoEnviada: true,
+                  notificacaoEnviadaEm: Date.now(),
+                }, { merge: true });
+
+                console.log(`Notificação enviada para ${doc.id}: ${sucesso} dispositivo(s).`);
+              } else {
+                console.log(`Nenhum envio FCM bem-sucedido para ${doc.id}; tentará novamente.`);
+              }
+            }
+          }
+
+          principal().catch(error => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
