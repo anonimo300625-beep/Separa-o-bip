@@ -1,0 +1,4339 @@
+name: Build Android APK - V3.3.2 Estoque de caixas + filtros + exportação
+
+# V3.3.2: corrige localização #3002, cria bipagem contínua, filtros de estoque e exportação da relação completa. Mantém a base estável da V3.3.1.
+
+on:
+  push:
+    branches: [ "main", "principal" ]
+    paths-ignore:
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+# Evita acumular várias compilações da mesma branch.
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do projeto
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Criar estrutura do projeto
+        run: |
+          mkdir -p app/src/main/java/com/separacao/bip
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/assets
+
+          if [ ! -f firebase/google-services.json ]; then
+            echo "ERRO: firebase/google-services.json não encontrado."
+            exit 1
+          fi
+
+          cp firebase/google-services.json app/google-services.json
+
+          XLSX_FILE=$(find dados -type f \( -iname "*.xlsx" -o -iname "*.xlsm" \) | head -n 1)
+          if [ -z "$XLSX_FILE" ]; then
+            echo "ERRO: Nenhuma planilha XLSX encontrada dentro de dados/"
+            exit 1
+          fi
+
+          echo "Planilha encontrada: $XLSX_FILE"
+          cp "$XLSX_FILE" app/src/main/assets/enderecos.xlsx
+
+      - name: Criar arquivos Gradle
+        run: |
+          cat << 'EOF' > gradle.properties
+          android.useAndroidX=true
+          android.enableJetifier=true
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          EOF
+
+          cat << 'EOF' > settings.gradle
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "ReposicaoApp"
+          include ':app'
+          EOF
+
+          cat << 'EOF' > build.gradle
+          plugins {
+              id 'com.android.application' version '8.2.2' apply false
+              id 'org.jetbrains.kotlin.android' version '1.9.22' apply false
+              id 'com.google.gms.google-services' version '4.5.0' apply false
+          }
+          EOF
+
+      - name: Configurar assinatura estável (um único Secret)
+        env:
+          ANDROID_SIGNING_CONFIG: ${{ secrets.ANDROID_SIGNING_CONFIG }}
+        run: |
+          if [ -z "$ANDROID_SIGNING_CONFIG" ]; then
+            echo "ERRO: O Secret ANDROID_SIGNING_CONFIG não foi configurado."
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import json
+          import os
+          import base64
+
+          config = json.loads(os.environ["ANDROID_SIGNING_CONFIG"])
+          required = ["keystore_base64", "password"]
+          missing = [key for key in required if not config.get(key)]
+          if missing:
+              raise SystemExit("ERRO: Secret incompleto: " + ", ".join(missing))
+
+          try:
+              keystore_bytes = base64.b64decode(config["keystore_base64"], validate=True)
+          except Exception as exc:
+              raise SystemExit("ERRO: Base64 do keystore inválido ou incompleto. Substitua o conteúdo do Secret pelo novo arquivo fornecido.") from exc
+
+          if len(keystore_bytes) < 1000:
+              raise SystemExit("ERRO: Keystore inválido ou incompleto.")
+
+          with open("app/reposicao-signing.jks", "wb") as f:
+              f.write(keystore_bytes)
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write("ANDROID_KEYSTORE_PASSWORD=" + config["password"] + "\n")
+              env.write("ANDROID_KEY_ALIAS=reposicao\n")
+              env.write("ANDROID_KEY_PASSWORD=" + config["password"] + "\n")
+
+          # GITHUB_ENV só fica disponível nos PRÓXIMOS passos.
+          # Para validar neste mesmo passo, exportamos também no shell.
+          with open("/tmp/signing_password", "w", encoding="utf-8") as f:
+              f.write(config["password"])
+          PY
+
+          ANDROID_KEYSTORE_PASSWORD=$(cat /tmp/signing_password)
+          ANDROID_KEY_ALIAS=reposicao
+          ANDROID_KEY_PASSWORD=$(cat /tmp/signing_password)
+          export ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD
+
+          echo "Validando a chave de assinatura..."
+          keytool -list -keystore app/reposicao-signing.jks \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias reposicao >/dev/null
+          echo "Assinatura estável configurada e validada."
+
+      - name: Configurar aplicativo Android
+        run: |
+          cat << 'EOF' > app/build.gradle
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+              id 'com.google.gms.google-services'
+          }
+
+          android {
+              namespace 'com.separacao.bip'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId "com.separacao.bip"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 22
+                  versionName "9.3.2"
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = '17'
+              }
+
+              signingConfigs {
+                  reposicaoStable {
+                      storeFile file("reposicao-signing.jks")
+                      storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                      keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                      keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+                  }
+              }
+
+              buildTypes {
+                  debug {
+                      signingConfig signingConfigs.reposicaoStable
+                  }
+              }
+          }
+
+          dependencies {
+              implementation platform('com.google.firebase:firebase-bom:34.18.0')
+              implementation 'com.google.firebase:firebase-firestore'
+              implementation 'com.google.android.gms:play-services-code-scanner:16.1.0'
+              implementation 'androidx.core:core-ktx:1.12.0'
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+          }
+          EOF
+
+      - name: Criar AndroidManifest
+        run: |
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+
+              <application
+                  android:allowBackup="true"
+                  android:label="Reposição"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+
+                  <meta-data
+                      android:name="com.google.mlkit.vision.DEPENDENCIES"
+                      android:value="barcode_ui"/>
+
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:screenOrientation="portrait"
+                      android:windowSoftInputMode="adjustResize">
+
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+
+                  </activity>
+
+                  <activity
+                      android:name=".CaixasActivity"
+                      android:exported="false"
+                      android:screenOrientation="portrait"
+                      android:windowSoftInputMode="adjustResize"/>
+
+                  <service
+                      android:name=".MonitoramentoReposicaoService"
+                      android:exported="false"
+                      android:foregroundServiceType="dataSync"/>
+
+                  <receiver
+                      android:name=".BootReceiver"
+                      android:enabled="true"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                      </intent-filter>
+                  </receiver>
+              </application>
+          </manifest>
+          EOF
+
+      - name: Criar layout principal
+        run: |
+          cat << 'EOF' > app/src/main/res/layout/activity_main.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:orientation="vertical"
+              android:background="#F5F5F5">
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="vertical"
+                  android:padding="14dp"
+                  android:background="#1565C0">
+
+                  <LinearLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:gravity="center_vertical"
+                      android:orientation="horizontal">
+
+                      <TextView
+                          android:id="@+id/tvTitulo"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_weight="1"
+                          android:text="Registro de Reposição"
+                          android:textColor="#FFFFFF"
+                          android:textSize="22sp"
+                          android:textStyle="bold"/>
+
+                      <Button
+                          android:id="@+id/btnConfiguracoes"
+                          android:layout_width="48dp"
+                          android:layout_height="48dp"
+                          android:background="?android:attr/selectableItemBackgroundBorderless"
+                          android:text="⚙"
+                          android:textColor="#FFFFFF"
+                          android:textSize="24sp"
+                          android:contentDescription="Configurações"
+                          android:minWidth="0dp"
+                          android:minHeight="0dp"/>
+                  </LinearLayout>
+
+                  <TextView
+                      android:id="@+id/tvOperador"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="8dp"
+                      android:text="Operador: Operador 1"
+                      android:textColor="#FFFFFF"
+                      android:textSize="14sp"/>
+
+                  <TextView
+                      android:id="@+id/tvStatusNotificacao"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="4dp"
+                      android:text="🔕 Notificações desativadas"
+                      android:textColor="#FFFFFF"
+                      android:textSize="13sp"/>
+              </LinearLayout>
+
+              <ScrollView
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent">
+
+                  <LinearLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:orientation="vertical"
+                      android:padding="12dp">
+
+                      <LinearLayout
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:orientation="horizontal">
+
+                          <Button
+                              android:id="@+id/btnModoReposicao"
+                              android:layout_width="0dp"
+                              android:layout_height="wrap_content"
+                              android:layout_weight="1"
+                              android:text="📦 REPOSIÇÃO"/>
+
+                          <Button
+                              android:id="@+id/btnModoConsulta"
+                              android:layout_width="0dp"
+                              android:layout_height="wrap_content"
+                              android:layout_weight="1"
+                              android:layout_marginStart="5dp"
+                              android:text="🔎 CONSULTAR"/>
+                      </LinearLayout>
+
+                      <Button
+                          android:id="@+id/btnNomeOperador"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="8dp"
+                          android:text="ALTERAR NOME DO OPERADOR"/>
+
+                      <TextView
+                          android:id="@+id/tvModoDescricao"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="8dp"
+                          android:text="Bipe ou digite o produto para solicitar reposição."
+                          android:textColor="#616161"/>
+
+                      <LinearLayout
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="10dp"
+                          android:orientation="horizontal"
+                          android:gravity="center_vertical">
+
+                          <EditText
+                              android:id="@+id/etCodigo"
+                              android:layout_width="0dp"
+                              android:layout_height="wrap_content"
+                              android:layout_weight="1"
+                              android:hint="Bipe ou digite o Código Mate"
+                              android:inputType="number"
+                              android:maxLength="30"
+                              android:imeOptions="actionDone"
+                              android:padding="14dp"/>
+
+                          <Button
+                              android:id="@+id/btnScanner"
+                              android:layout_width="58dp"
+                              android:layout_height="58dp"
+                              android:layout_marginStart="6dp"
+                              android:text="📷"
+                              android:textSize="22sp"
+                              android:contentDescription="Ler código de barras pela câmera"/>
+                      </LinearLayout>
+
+                      <LinearLayout
+                          android:id="@+id/containerConsultaEndereco"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="8dp"
+                          android:orientation="horizontal"
+                          android:gravity="center_vertical"
+                          android:visibility="gone">
+
+                          <EditText
+                              android:id="@+id/etEnderecoConsulta"
+                              android:layout_width="0dp"
+                              android:layout_height="wrap_content"
+                              android:layout_weight="1"
+                              android:hint="📍 Rua / Rack / Coluna / Linha"
+                              android:inputType="text"
+                              android:imeOptions="actionDone"
+                              android:padding="14dp"
+                              android:background="#FFFFFF"/>
+
+                          <Button
+                              android:id="@+id/btnConsultarEndereco"
+                              android:layout_width="wrap_content"
+                              android:layout_height="wrap_content"
+                              android:layout_marginStart="6dp"
+                              android:text="BUSCAR"/>
+                      </LinearLayout>
+
+                      <LinearLayout
+                          android:id="@+id/containerProdutoEncontrado"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="8dp"
+                          android:padding="12dp"
+                          android:orientation="vertical"
+                          android:background="#E3F2FD"
+                          android:visibility="gone">
+
+                          <TextView
+                              android:layout_width="match_parent"
+                              android:layout_height="wrap_content"
+                              android:text="PRODUTO ENCONTRADO"
+                              android:textColor="#1565C0"
+                              android:textStyle="bold"
+                              android:textSize="12sp"/>
+
+                          <LinearLayout
+                              android:layout_width="match_parent"
+                              android:layout_height="wrap_content"
+                              android:layout_marginTop="5dp"
+                              android:gravity="center_vertical"
+                              android:orientation="horizontal">
+
+                              <TextView
+                                  android:id="@+id/tvCodigoEncontrado"
+                                  android:layout_width="0dp"
+                                  android:layout_height="wrap_content"
+                                  android:layout_weight="1"
+                                  android:textColor="#212121"
+                                  android:textSize="18sp"
+                                  android:textStyle="bold"/>
+
+                              <Button
+                                  android:id="@+id/btnCopiarCodigo"
+                                  android:layout_width="wrap_content"
+                                  android:layout_height="wrap_content"
+                                  android:text="📋 COPIAR"
+                                  android:minHeight="0dp"
+                                  android:minWidth="0dp"/>
+                          </LinearLayout>
+
+                          <TextView
+                              android:id="@+id/tvProdutoEncontrado"
+                              android:layout_width="match_parent"
+                              android:layout_height="wrap_content"
+                              android:layout_marginTop="5dp"
+                              android:textColor="#212121"
+                              android:textSize="15sp"/>
+
+                          <TextView
+                              android:id="@+id/tvEnderecoEncontrado"
+                              android:layout_width="match_parent"
+                              android:layout_height="wrap_content"
+                              android:layout_marginTop="6dp"
+                              android:textColor="#1565C0"
+                              android:textSize="15sp"
+                              android:textStyle="bold"/>
+                      </LinearLayout>
+
+                      <Button
+                          android:id="@+id/btnProcessar"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="6dp"
+                          android:text="ADICIONAR REPOSIÇÃO"/>
+
+                      <Button
+                          android:id="@+id/btnLimparConsultas"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="8dp"
+                          android:text="🗑 LIMPAR CONSULTAS"
+                          android:visibility="gone"/>
+
+                      <TextView
+                          android:id="@+id/tvFeedback"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="8dp"
+                          android:padding="10dp"
+                          android:textColor="#2E7D32"
+                          android:textStyle="bold"
+                          android:visibility="gone"/>
+
+                      <LinearLayout
+                          android:id="@+id/containerContadores"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="14dp"
+                          android:orientation="horizontal"
+                          android:weightSum="3">
+
+                          <LinearLayout
+                              android:layout_width="0dp"
+                              android:layout_height="wrap_content"
+                              android:layout_weight="1"
+                              android:gravity="center"
+                              android:orientation="vertical"
+                              android:padding="10dp"
+                              android:background="#FFCDD2">
+
+                              <TextView
+                                  android:layout_width="wrap_content"
+                                  android:layout_height="wrap_content"
+                                  android:text="PENDENTES"
+                                  android:textColor="#B71C1C"
+                                  android:textSize="10sp"
+                                  android:textStyle="bold"/>
+
+                              <TextView
+                                  android:id="@+id/tvPendentes"
+                                  android:layout_width="wrap_content"
+                                  android:layout_height="wrap_content"
+                                  android:text="0"
+                                  android:textColor="#B71C1C"
+                                  android:textSize="22sp"
+                                  android:textStyle="bold"/>
+                          </LinearLayout>
+
+                          <LinearLayout
+                              android:layout_width="0dp"
+                              android:layout_height="wrap_content"
+                              android:layout_weight="1"
+                              android:gravity="center"
+                              android:orientation="vertical"
+                              android:padding="10dp"
+                              android:background="#C8E6C9">
+
+                              <TextView
+                                  android:layout_width="wrap_content"
+                                  android:layout_height="wrap_content"
+                                  android:text="CONCLUÍDOS"
+                                  android:textColor="#1B5E20"
+                                  android:textSize="10sp"
+                                  android:textStyle="bold"/>
+
+                              <TextView
+                                  android:id="@+id/tvConcluidos"
+                                  android:layout_width="wrap_content"
+                                  android:layout_height="wrap_content"
+                                  android:text="0"
+                                  android:textColor="#1B5E20"
+                                  android:textSize="22sp"
+                                  android:textStyle="bold"/>
+                          </LinearLayout>
+
+                          <LinearLayout
+                              android:layout_width="0dp"
+                              android:layout_height="wrap_content"
+                              android:layout_weight="1"
+                              android:gravity="center"
+                              android:orientation="vertical"
+                              android:padding="10dp"
+                              android:background="#FFF59D">
+
+                              <TextView
+                                  android:layout_width="wrap_content"
+                                  android:layout_height="wrap_content"
+                                  android:text="TOTAL"
+                                  android:textColor="#F57F17"
+                                  android:textSize="10sp"
+                                  android:textStyle="bold"/>
+
+                              <TextView
+                                  android:id="@+id/tvTotal"
+                                  android:layout_width="wrap_content"
+                                  android:layout_height="wrap_content"
+                                  android:text="0"
+                                  android:textColor="#F57F17"
+                                  android:textSize="22sp"
+                                  android:textStyle="bold"/>
+                          </LinearLayout>
+                      </LinearLayout>
+
+                      <LinearLayout
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="8dp"
+                          android:orientation="horizontal">
+
+                          <Button
+                              android:id="@+id/btnOrdenarEndereco"
+                              android:layout_width="0dp"
+                              android:layout_height="wrap_content"
+                              android:layout_weight="1"
+                              android:text="📍 ENDEREÇO"/>
+
+                          <Button
+                              android:id="@+id/btnOrdenarAntigos"
+                              android:layout_width="0dp"
+                              android:layout_height="wrap_content"
+                              android:layout_weight="1"
+                              android:layout_marginStart="5dp"
+                              android:text="🕐 MAIS ANTIGOS"/>
+                      </LinearLayout>
+
+                      <LinearLayout
+                          android:id="@+id/containerAbas"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="12dp"
+                          android:orientation="horizontal">
+
+                          <Button
+                              android:id="@+id/btnPendentes"
+                              android:layout_width="0dp"
+                              android:layout_height="wrap_content"
+                              android:layout_weight="1"
+                              android:text="PENDENTES"/>
+
+                          <Button
+                              android:id="@+id/btnEmSeparacao"
+                              android:layout_width="0dp"
+                              android:layout_height="wrap_content"
+                              android:layout_weight="1"
+                              android:layout_marginStart="5dp"
+                              android:text="EM SEPARAÇÃO"/>
+
+                          <Button
+                              android:id="@+id/btnConcluidos"
+                              android:layout_width="0dp"
+                              android:layout_height="wrap_content"
+                              android:layout_weight="1"
+                              android:layout_marginStart="5dp"
+                              android:text="CONCLUÍDOS"/>
+                      </LinearLayout>
+
+                      <EditText
+                          android:id="@+id/etPesquisa"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="10dp"
+                          android:hint="🔍 Pesquisar produto, código ou endereço"
+                          android:inputType="text"
+                          android:padding="12dp"
+                          android:background="#FFFFFF"
+                          android:visibility="visible"/>
+
+                      <LinearLayout
+                          android:id="@+id/containerLista"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="8dp"
+                          android:orientation="vertical"/>
+                  </LinearLayout>
+              </ScrollView>
+          </LinearLayout>
+          EOF
+
+      - name: Criar layout dos registros
+        run: |
+          cat << 'EOF' > app/src/main/res/layout/item_reposicao.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:layout_marginTop="6dp"
+              android:background="#FFFFFF"
+              android:orientation="vertical"
+              android:padding="14dp">
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="horizontal">
+
+                  <TextView
+                      android:id="@+id/tvCodigo"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:textColor="#212121"
+                      android:textSize="19sp"
+                      android:textStyle="bold"/>
+
+                  <TextView
+                      android:id="@+id/tvStatus"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:padding="6dp"
+                      android:textStyle="bold"/>
+              </LinearLayout>
+
+              <TextView
+                  android:id="@+id/tvProduto"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_marginTop="5dp"
+                  android:textColor="#424242"
+                  android:textSize="15sp"/>
+
+              <TextView
+                  android:id="@+id/tvEndereco"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_marginTop="8dp"
+                  android:textColor="#1565C0"
+                  android:textSize="15sp"
+                  android:textStyle="bold"/>
+
+              <TextView
+                  android:id="@+id/tvDetalhes"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_marginTop="5dp"
+                  android:textColor="#757575"
+                  android:textSize="12sp"/>
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_marginTop="10dp"
+                  android:gravity="end"
+                  android:orientation="horizontal">
+
+                  <Button
+                      android:id="@+id/btnCopiarItem"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="📋"
+                      android:contentDescription="Copiar código"
+                      android:minWidth="0dp"
+                      android:minHeight="0dp"/>
+
+                  <Button
+                      android:id="@+id/btnAcao"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"/>
+
+                  <Button
+                      android:id="@+id/btnExcluir"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_marginStart="6dp"
+                      android:text="EXCLUIR"/>
+              </LinearLayout>
+          </LinearLayout>
+          EOF
+
+      - name: Criar MainActivity com Firebase Firestore e monitoramento
+        run: |
+          cat << 'EOF' > app/src/main/java/com/separacao/bip/MainActivity.kt
+          package com.separacao.bip
+
+          import android.Manifest
+          import android.app.Activity
+          import android.app.AlertDialog
+          import android.content.Context
+          import android.content.pm.PackageManager
+          import android.content.Intent
+          import android.graphics.Color
+          import android.net.Uri
+          import android.os.Build
+          import android.os.Bundle
+          import android.provider.Settings
+          import android.util.Xml
+          import android.view.LayoutInflater
+          import android.view.View
+          import android.view.inputmethod.EditorInfo
+          import android.widget.*
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.core.content.ContextCompat
+          import com.google.firebase.firestore.FirebaseFirestore
+          import com.google.firebase.firestore.ListenerRegistration
+          import com.google.firebase.firestore.SetOptions
+          import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import org.xmlpull.v1.XmlPullParser
+          import java.io.File
+          import java.io.FileInputStream
+          import java.io.FileOutputStream
+          import java.io.InputStream
+          import java.text.SimpleDateFormat
+          import java.util.Date
+          import java.util.Locale
+          import java.util.UUID
+          import java.util.zip.ZipFile
+
+          data class EnderecoProduto(
+              val codigo: String,
+              val descricao: String,
+              val rua: String,
+              val rack: String,
+              val coluna: String,
+              val linha: String
+          )
+
+          data class ItemReposicao(
+              val id: String,
+              val codigo: String,
+              val descricao: String,
+              var quantidade: Int,
+              val rua: String,
+              val rack: String,
+              val coluna: String,
+              val linha: String,
+              val operador: String,
+              val timestamp: Long,
+              var status: String,
+              var separador: String = "",
+              val dispositivo: String = ""
+          ) {
+              val concluido: Boolean
+                  get() = status == "concluido"
+          }
+
+          data class ItemConsulta(
+              val codigo: String,
+              val descricao: String,
+              val rua: String,
+              val rack: String,
+              val coluna: String,
+              val linha: String,
+              val timestamp: Long
+          )
+
+          class MainActivity : AppCompatActivity() {
+
+              private lateinit var tvTitulo: TextView
+              private lateinit var tvOperador: TextView
+              private lateinit var tvStatusNotificacao: TextView
+              private lateinit var tvModoDescricao: TextView
+              private lateinit var etCodigo: EditText
+              private lateinit var etPesquisa: EditText
+              private lateinit var etEnderecoConsulta: EditText
+              private lateinit var btnConsultarEndereco: Button
+              private lateinit var btnOrdenarEndereco: Button
+              private lateinit var btnOrdenarAntigos: Button
+              private lateinit var btnEmSeparacao: Button
+              private lateinit var btnScanner: Button
+              private lateinit var containerProdutoEncontrado: LinearLayout
+              private lateinit var tvCodigoEncontrado: TextView
+              private lateinit var tvProdutoEncontrado: TextView
+              private lateinit var tvEnderecoEncontrado: TextView
+              private lateinit var btnCopiarCodigo: Button
+              private lateinit var btnProcessar: Button
+              private lateinit var btnLimparConsultas: Button
+              private lateinit var btnModoReposicao: Button
+              private lateinit var btnModoConsulta: Button
+              private lateinit var btnNomeOperador: Button
+              private lateinit var btnConfiguracoes: Button
+              private lateinit var tvFeedback: TextView
+              private lateinit var containerContadores: LinearLayout
+              private lateinit var containerAbas: LinearLayout
+              private lateinit var containerLista: LinearLayout
+              private lateinit var tvPendentes: TextView
+              private lateinit var tvConcluidos: TextView
+              private lateinit var tvTotal: TextView
+              private lateinit var btnPendentes: Button
+              private lateinit var btnConcluidos: Button
+
+              private val baseProdutos = mutableMapOf<String, EnderecoProduto>()
+              private val registros = mutableListOf<ItemReposicao>()
+              private val consultas = mutableListOf<ItemConsulta>()
+
+              private val db by lazy { FirebaseFirestore.getInstance() }
+              private var firestoreListener: ListenerRegistration? = null
+              private var operadorListener: ListenerRegistration? = null
+              private var firestoreSnapshotInicial = true
+
+              private val dispositivoId: String by lazy {
+                  val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                  prefs.getString(KEY_DISPOSITIVO, null) ?: run {
+                      val androidId = Settings.Secure.getString(
+                          contentResolver,
+                          Settings.Secure.ANDROID_ID
+                      )
+                      val id = androidId?.takeIf { it.isNotBlank() }
+                          ?: UUID.randomUUID().toString()
+                      prefs.edit().putString(KEY_DISPOSITIVO, id).apply()
+                      id
+                  }
+              }
+
+              private var nomeOperador = "Operador 1"
+              private var modoConsulta = false
+              private var abaConcluidos = false
+              private var abaEmSeparacao = false
+              private var ordenarPorEndereco = false
+              private var notificacoesAtivas = false
+
+              companion object {
+                  const val PREFS = "reposicao_prefs"
+                  const val KEY_REGISTROS = "registros"
+                  const val KEY_OPERADOR = "operador"
+                  const val KEY_DISPOSITIVO = "dispositivo_id"
+                  const val KEY_NOTIFICACOES_ATIVAS = "notificacoes_ativas"
+                  const val REQUEST_IMPORT_XLSX = 500
+                  const val REQUEST_NOTIFICACAO = 900
+                  const val PLANILHA_INTERNA = "enderecos_atualizados.xlsx"
+                  const val COLECAO_REPOSICOES = "reposicoes"
+                  const val COLECAO_OPERADORES = "operadores_aparelhos"
+                  const val CANAL_NOTIFICACOES = "novas_reposicoes"
+                  const val STATUS_PENDENTE = "pendente"
+                  const val STATUS_SEPARACAO = "em_separacao"
+                  const val STATUS_CONCLUIDO = "concluido"
+              }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+
+                  setContentView(R.layout.activity_main)
+
+                  inicializarViews()
+                  carregarConfiguracoesNotificacao()
+                  carregarOperador()
+                  carregarOperadorDaNuvem()
+                  carregarRegistros()
+                  carregarBaseEnderecos()
+                  configurarEventos()
+                  atualizarModo()
+                  atualizarInterface()
+                  atualizarStatusNotificacao()
+                  iniciarSincronizacaoFirestore()
+                  atualizarServicoMonitoramento()
+
+                  etCodigo.requestFocus()
+              }
+
+              override fun onDestroy() {
+                  operadorListener?.remove()
+                  operadorListener = null
+                  firestoreListener?.remove()
+                  firestoreListener = null
+                  super.onDestroy()
+              }
+
+              private fun inicializarViews() {
+                  tvTitulo = findViewById(R.id.tvTitulo)
+                  tvOperador = findViewById(R.id.tvOperador)
+                  tvStatusNotificacao = findViewById(R.id.tvStatusNotificacao)
+                  tvModoDescricao = findViewById(R.id.tvModoDescricao)
+                  etCodigo = findViewById(R.id.etCodigo)
+                  etPesquisa = findViewById(R.id.etPesquisa)
+                  etEnderecoConsulta = findViewById(R.id.etEnderecoConsulta)
+                  btnConsultarEndereco = findViewById(R.id.btnConsultarEndereco)
+                  btnOrdenarEndereco = findViewById(R.id.btnOrdenarEndereco)
+                  btnOrdenarAntigos = findViewById(R.id.btnOrdenarAntigos)
+                  btnEmSeparacao = findViewById(R.id.btnEmSeparacao)
+                  btnScanner = findViewById(R.id.btnScanner)
+                  containerProdutoEncontrado = findViewById(R.id.containerProdutoEncontrado)
+                  tvCodigoEncontrado = findViewById(R.id.tvCodigoEncontrado)
+                  tvProdutoEncontrado = findViewById(R.id.tvProdutoEncontrado)
+                  tvEnderecoEncontrado = findViewById(R.id.tvEnderecoEncontrado)
+                  btnCopiarCodigo = findViewById(R.id.btnCopiarCodigo)
+                  btnProcessar = findViewById(R.id.btnProcessar)
+                  btnLimparConsultas = findViewById(R.id.btnLimparConsultas)
+                  btnModoReposicao = findViewById(R.id.btnModoReposicao)
+                  btnModoConsulta = findViewById(R.id.btnModoConsulta)
+                  btnNomeOperador = findViewById(R.id.btnNomeOperador)
+                  btnConfiguracoes = findViewById(R.id.btnConfiguracoes)
+                  tvFeedback = findViewById(R.id.tvFeedback)
+                  containerContadores = findViewById(R.id.containerContadores)
+                  containerAbas = findViewById(R.id.containerAbas)
+                  containerLista = findViewById(R.id.containerLista)
+                  tvPendentes = findViewById(R.id.tvPendentes)
+                  tvConcluidos = findViewById(R.id.tvConcluidos)
+                  tvTotal = findViewById(R.id.tvTotal)
+                  btnPendentes = findViewById(R.id.btnPendentes)
+                  btnConcluidos = findViewById(R.id.btnConcluidos)
+              }
+
+              private fun configurarEventos() {
+                  btnModoReposicao.setOnClickListener {
+                      modoConsulta = false
+                      atualizarModo()
+                      atualizarInterface()
+                  }
+
+                  btnModoConsulta.setOnClickListener {
+                      modoConsulta = true
+                      atualizarModo()
+                      atualizarConsultas()
+                  }
+
+                  btnConsultarEndereco.setOnClickListener {
+                      consultarPorEnderecoSeparadamente()
+                  }
+
+                  etEnderecoConsulta.setOnEditorActionListener { _, actionId, _ ->
+                      if (actionId == EditorInfo.IME_ACTION_DONE) {
+                          consultarPorEnderecoSeparadamente()
+                          true
+                      } else false
+                  }
+
+                  btnOrdenarEndereco.setOnClickListener {
+                      ordenarPorEndereco = true
+                      atualizarBotoesOrdenacao()
+                      atualizarInterface()
+                  }
+
+                  btnOrdenarAntigos.setOnClickListener {
+                      ordenarPorEndereco = false
+                      atualizarBotoesOrdenacao()
+                      atualizarInterface()
+                  }
+
+                  btnScanner.setOnClickListener {
+                      abrirScanner()
+                  }
+
+                  btnCopiarCodigo.setOnClickListener {
+                      val codigo = tvCodigoEncontrado.text.toString().trim()
+                      .removePrefix("Código:")
+                      .trim()
+                      if (codigo.isNotEmpty()) {
+                          val clipboard =
+                              getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                          clipboard.setPrimaryClip(
+                              android.content.ClipData.newPlainText(
+                                  "Código Material",
+                                  codigo
+                              )
+                          )
+                          Toast.makeText(
+                              this,
+                              "Código $codigo copiado!",
+                              Toast.LENGTH_SHORT
+                          ).show()
+                      }
+                  }
+
+                  etCodigo.addTextChangedListener(object : android.text.TextWatcher {
+                      override fun beforeTextChanged(
+                          s: CharSequence?,
+                          start: Int,
+                          count: Int,
+                          after: Int
+                      ) = Unit
+
+                      override fun onTextChanged(
+                          s: CharSequence?,
+                          start: Int,
+                          before: Int,
+                          count: Int
+                      ) {
+                          val codigo = extrairCodigoMate(s?.toString().orEmpty())
+                          if (codigo.length == 5 && baseProdutos.isNotEmpty()) {
+                              mostrarProdutoEncontrado(codigo)
+                          } else if (codigo.length < 5) {
+                              esconderProdutoEncontrado()
+                          }
+                      }
+
+                      override fun afterTextChanged(s: android.text.Editable?) = Unit
+                  })
+
+                  etPesquisa.addTextChangedListener(object : android.text.TextWatcher {
+                      override fun beforeTextChanged(
+                          s: CharSequence?,
+                          start: Int,
+                          count: Int,
+                          after: Int
+                      ) = Unit
+
+                      override fun onTextChanged(
+                          s: CharSequence?,
+                          start: Int,
+                          before: Int,
+                          count: Int
+                      ) {
+                          if (!modoConsulta) atualizarInterface()
+                      }
+
+                      override fun afterTextChanged(s: android.text.Editable?) = Unit
+                  })
+
+                  btnProcessar.setOnClickListener {
+                      processarCodigo()
+                  }
+
+                  etCodigo.setOnEditorActionListener { _, actionId, _ ->
+                      if (actionId == EditorInfo.IME_ACTION_DONE) {
+                          processarCodigo()
+                          true
+                      } else {
+                          false
+                      }
+                  }
+
+                  btnNomeOperador.setOnClickListener {
+                      alterarNomeOperador()
+                  }
+
+                  btnConfiguracoes.setOnClickListener {
+                      abrirConfiguracoes()
+                  }
+
+                  btnPendentes.setOnClickListener {
+                      abaConcluidos = false
+                      abaEmSeparacao = false
+                      atualizarInterface()
+                  }
+
+                  btnEmSeparacao.setOnClickListener {
+                      abaConcluidos = false
+                      abaEmSeparacao = true
+                      atualizarInterface()
+                  }
+
+                  btnConcluidos.setOnClickListener {
+                      abaConcluidos = true
+                      abaEmSeparacao = false
+                      atualizarInterface()
+                  }
+
+                  btnLimparConsultas.setOnClickListener {
+                      confirmarLimparConsultas()
+                  }
+              }
+
+              private fun carregarConfiguracoesNotificacao() {
+                  val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                  notificacoesAtivas = prefs.getBoolean(KEY_NOTIFICACOES_ATIVAS, false)
+              }
+
+              private fun salvarConfiguracoesNotificacao() {
+                  getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                      .edit()
+                      .putBoolean(KEY_NOTIFICACOES_ATIVAS, notificacoesAtivas)
+                      .remove("manter_tela_ligada")
+                      .apply()
+              }
+
+              private fun atualizarStatusNotificacao() {
+                  tvStatusNotificacao.text = if (notificacoesAtivas) {
+                      "🟢 Monitoramento em segundo plano ativo • tela pode apagar"
+                  } else {
+                      "🔕 Monitoramento desativado"
+                  }
+              }
+
+              private fun abrirConfiguracoesNotificacao() {
+                  val container = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(24, 0, 24, 0)
+                  }
+
+                  val checkNotificacoes = CheckBox(this).apply {
+                      text = "Receber notificações de novas pendências"
+                      isChecked = notificacoesAtivas
+                      setPadding(0, 8, 0, 8)
+                  }
+
+                  val explicacao = TextView(this).apply {
+                      text = "Quando ativado, o telefone continuará monitorando novas reposições mesmo com o app minimizado e com a tela apagada."
+                      textSize = 16f
+                      setPadding(0, 8, 0, 8)
+                  }
+
+                  container.addView(checkNotificacoes)
+                  container.addView(explicacao)
+
+                  val dialog = AlertDialog.Builder(this)
+                      .setTitle("Monitoramento de reposições")
+                      .setView(container)
+                      .setPositiveButton("FECHAR", null)
+                      .create()
+
+                  checkNotificacoes.setOnCheckedChangeListener { _, checked ->
+                      notificacoesAtivas = checked
+                      salvarConfiguracoesNotificacao()
+                      atualizarStatusNotificacao()
+
+                      if (checked) {
+                          solicitarPermissaoNotificacao()
+                      } else {
+                          pararServicoMonitoramento()
+                      }
+                  }
+
+                  dialog.show()
+              }
+
+              private fun solicitarPermissaoNotificacao() {
+                  if (!notificacoesAtivas) return
+
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                      ContextCompat.checkSelfPermission(
+                          this,
+                          Manifest.permission.POST_NOTIFICATIONS
+                      ) != PackageManager.PERMISSION_GRANTED
+                  ) {
+                      requestPermissions(
+                          arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                          REQUEST_NOTIFICACAO
+                      )
+                      return
+                  }
+
+                  iniciarServicoMonitoramento()
+              }
+
+              private fun iniciarServicoMonitoramento() {
+                  if (!notificacoesAtivas) return
+                  val intent = Intent(this, MonitoramentoReposicaoService::class.java)
+                  try {
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                          startForegroundService(intent)
+                      } else {
+                          startService(intent)
+                      }
+                  } catch (e: Exception) {
+                      Toast.makeText(
+                          this,
+                          "Não foi possível iniciar o monitoramento: ${e.message}",
+                          Toast.LENGTH_LONG
+                      ).show()
+                  }
+              }
+
+              private fun pararServicoMonitoramento() {
+                  stopService(Intent(this, MonitoramentoReposicaoService::class.java))
+              }
+
+              private fun atualizarServicoMonitoramento() {
+                  if (notificacoesAtivas) {
+                      solicitarPermissaoNotificacao()
+                  } else {
+                      pararServicoMonitoramento()
+                  }
+              }
+
+              override fun onRequestPermissionsResult(
+                  requestCode: Int,
+                  permissions: Array<out String>,
+                  grantResults: IntArray
+              ) {
+                  super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+                  if (requestCode == REQUEST_NOTIFICACAO &&
+                      Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                  ) {
+                      if (grantResults.isNotEmpty() &&
+                          grantResults[0] == PackageManager.PERMISSION_GRANTED
+                      ) {
+                          iniciarServicoMonitoramento()
+                          Toast.makeText(
+                              this,
+                              "Monitoramento ativado em segundo plano.",
+                              Toast.LENGTH_SHORT
+                          ).show()
+                      } else {
+                          notificacoesAtivas = false
+                          salvarConfiguracoesNotificacao()
+                          atualizarStatusNotificacao()
+                          pararServicoMonitoramento()
+                          Toast.makeText(
+                              this,
+                              "Permissão de notificações não concedida.",
+                              Toast.LENGTH_LONG
+                          ).show()
+                      }
+                  }
+              }
+
+              private fun atualizarModo() {
+                  tvFeedback.visibility = View.GONE
+                  esconderProdutoEncontrado()
+                  etCodigo.setText("")
+
+                  if (modoConsulta) {
+                      etPesquisa.visibility = View.GONE
+                      etEnderecoConsulta.visibility = View.VISIBLE
+                      findViewById<View>(R.id.containerConsultaEndereco).visibility = View.VISIBLE
+                      btnConsultarEndereco.visibility = View.VISIBLE
+                      btnOrdenarEndereco.visibility = View.GONE
+                      btnOrdenarAntigos.visibility = View.GONE
+                      etCodigo.inputType = android.text.InputType.TYPE_CLASS_TEXT
+                      etCodigo.hint = "Digite o Código ou o endereço"
+                      tvTitulo.text = "Consulta de Endereços"
+                      tvModoDescricao.text =
+                          "Consulte pelo Código Mate ou informe o endereço para descobrir qual produto fica nele."
+                      btnProcessar.text = "CONSULTAR"
+                      btnLimparConsultas.visibility = View.VISIBLE
+                      btnProcessar.visibility = View.VISIBLE
+                      containerContadores.visibility = View.GONE
+                      containerAbas.visibility = View.GONE
+                  } else {
+                      etPesquisa.visibility = View.VISIBLE
+                      etEnderecoConsulta.visibility = View.GONE
+                      findViewById<View>(R.id.containerConsultaEndereco).visibility = View.GONE
+                      btnConsultarEndereco.visibility = View.GONE
+                      btnOrdenarEndereco.visibility = View.VISIBLE
+                      btnOrdenarAntigos.visibility = View.VISIBLE
+                      etCodigo.inputType = android.text.InputType.TYPE_CLASS_NUMBER
+                      etCodigo.hint = "Bipe ou digite o Código Mate"
+                      tvTitulo.text = "Registro de Reposição"
+                      tvModoDescricao.text =
+                          "Bipe ou digite o produto para solicitar reposição."
+                      btnProcessar.text = "ADICIONAR REPOSIÇÃO"
+                      btnLimparConsultas.visibility = View.GONE
+                      btnProcessar.visibility = View.VISIBLE
+                      containerContadores.visibility = View.VISIBLE
+                      containerAbas.visibility = View.VISIBLE
+                      atualizarBotoesOrdenacao()
+                  }
+
+                  etCodigo.requestFocus()
+              }
+
+              private fun abrirScanner() {
+                  val scanner = GmsBarcodeScanning.getClient(this)
+
+                  scanner.startScan()
+                      .addOnSuccessListener { barcode ->
+                          val valor = barcode.rawValue?.trim().orEmpty()
+
+                          if (valor.isEmpty()) {
+                              Toast.makeText(
+                                  this,
+                                  "Não foi possível obter o código.",
+                                  Toast.LENGTH_SHORT
+                              ).show()
+                              return@addOnSuccessListener
+                          }
+
+                          etCodigo.setText(valor)
+                          etCodigo.setSelection(etCodigo.text.length)
+
+                          // Leitura pela câmera executa imediatamente a ação do modo atual.
+                          // No modo Reposição, não é mais necessário tocar em"ADICIONAR REPOSIÇÃO" depois do bip.
+                          processarCodigo()
+                      }
+                      .addOnCanceledListener {
+                          // O operador simplesmente fechou o scanner.
+                      }
+                      .addOnFailureListener { e ->
+                          Toast.makeText(
+                              this,
+                              "Não foi possível abrir o leitor: ${e.message ?: "erro desconhecido"}",
+                              Toast.LENGTH_LONG
+                          ).show()
+                      }
+              }
+
+              private fun mostrarProdutoEncontrado(codigo: String) {
+                  val produto = baseProdutos[codigo]
+
+                  if (produto == null) {
+                      tvCodigoEncontrado.text = "Código $codigo"
+                      tvProdutoEncontrado.text = "Produto não encontrado na planilha."
+                      tvEnderecoEncontrado.text = ""
+                      containerProdutoEncontrado.visibility = View.VISIBLE
+                      return
+                  }
+
+                  tvCodigoEncontrado.text = produto.codigo
+                  tvProdutoEncontrado.text = produto.descricao
+                  tvEnderecoEncontrado.text = if (enderecoTemDados(produto)) {
+                      "📍 ${produto.rua} — ${produto.rack}\n" +
+                      "Coluna ${produto.coluna} — Linha ${produto.linha}"
+                  } else {
+                      "⚠ Sem endereço cadastrado"
+                  }
+                  containerProdutoEncontrado.visibility = View.VISIBLE
+              }
+
+              private fun esconderProdutoEncontrado() {
+                  containerProdutoEncontrado.visibility = View.GONE
+              }
+
+              private fun enderecoTemDados(produto: EnderecoProduto): Boolean {
+                  val campos = listOf(
+                      produto.rua, produto.rack, produto.coluna, produto.linha
+                  )
+                  return campos.any { valor ->
+                      val normalizado = valor.trim().lowercase(Locale.getDefault())
+                      normalizado.isNotEmpty() &&
+                          normalizado != "-" &&
+                          normalizado != "n/a" &&
+                          normalizado != "sem endereço" &&
+                          normalizado != "sem endereco"
+                  }
+              }
+
+              private fun confirmarCodigoSemEndereco(produto: EnderecoProduto) {
+                  AlertDialog.Builder(this)
+                      .setTitle("Código sem endereço")
+                      .setMessage(
+                          "O código ${produto.codigo} não possui endereço cadastrado.\n\n" +
+                          "Código sem endereço, adicionar assim mesmo?"
+                      )
+                      .setNegativeButton("CANCELAR", null)
+                      .setPositiveButton("ADICIONAR") { _, _ ->
+                          adicionarReposicao(produto)
+                      }
+                      .show()
+              }
+
+              private fun processarCodigo() {
+                  val entrada = etCodigo.text.toString().trim()
+
+                  if (entrada.isEmpty()) {
+                      Toast.makeText(
+                          this,
+                          if (modoConsulta) {
+                              "Digite um Código Mate ou um endereço para consultar."
+                          } else {
+                              "Digite os 5 números do Código Mate ou bipe o código de barras."
+                          },
+                          Toast.LENGTH_LONG
+                      ).show()
+                      return
+                  }
+
+                  if (modoConsulta) {
+                      consultarEntrada(entrada)
+                      etCodigo.setText("")
+                      etCodigo.requestFocus()
+                      return
+                  }
+
+                  val codigo = extrairCodigoMate(entrada)
+
+                  if (codigo.length != 5) {
+                      Toast.makeText(
+                          this,
+                          "Digite os 5 números do Código Mate ou bipe o código de barras.",
+                          Toast.LENGTH_LONG
+                      ).show()
+                      return
+                  }
+
+                  val produto = baseProdutos[codigo]
+
+                  if (produto == null) {
+                      Toast.makeText(
+                          this,
+                          "Código $codigo não encontrado na planilha.",
+                          Toast.LENGTH_LONG
+                      ).show()
+                      return
+                  }
+
+                  if (!enderecoTemDados(produto)) {
+                      confirmarCodigoSemEndereco(produto)
+                  } else {
+                      adicionarReposicao(produto)
+                  }
+
+                  etCodigo.setText("")
+                  etCodigo.requestFocus()
+              }
+
+              private fun consultarEntrada(entrada: String) {
+                  val codigo = extrairCodigoMate(entrada)
+                  val produto = if (codigo.length == 5) baseProdutos[codigo] else null
+                  if (produto != null) {
+                      adicionarConsulta(produto)
+                      return
+                  }
+
+                  Toast.makeText(
+                      this,
+                      "Código não encontrado. Para consultar por endereço, use o campo específico abaixo.",
+                      Toast.LENGTH_LONG
+                  ).show()
+              }
+
+              private fun consultarPorEnderecoSeparadamente() {
+                  val buscaOriginal = etEnderecoConsulta.text.toString().trim()
+                  val busca = normalizarTexto(buscaOriginal)
+                  if (busca.isEmpty()) {
+                      Toast.makeText(this, "Informe o endereço para pesquisar.", Toast.LENGTH_SHORT).show()
+                      return
+                  }
+
+                  // A consulta por endereço usa a posição dos campos:
+                  // Rua/Estação + Rack + Coluna + Linha.
+                  // Ex.: "1 1 5 B" = Rua 1 / Rack 1 / Coluna 5 / Linha B.
+                  // Também aceita os nomes dos campos, por exemplo:
+                  // "Rua 1 Rack 1 Coluna 5 Linha B".
+                  val partesBusca = interpretarBuscaEndereco(busca)
+
+                  if (partesBusca == null) {
+                      Toast.makeText(
+                          this,
+                          "Formato inválido. Use: Rua Rack Coluna Linha\nEx.: 1 1 5 B",
+                          Toast.LENGTH_LONG
+                      ).show()
+                      return
+                  }
+
+                  val encontrados = baseProdutos.values
+                      .filter { produto ->
+                          enderecoBateExatamente(
+                              produto,
+                              partesBusca
+                          )
+                      }
+                      .sortedWith(
+                          compareBy<EnderecoProduto> { numeroEndereco(it.rua) }
+                              .thenBy { numeroEndereco(it.rack) }
+                              .thenBy { numeroEndereco(it.coluna) }
+                              .thenBy { textoEndereco(it.linha) }
+                              .thenBy { textoEndereco(it.descricao) }
+                      )
+
+                  containerLista.removeAllViews()
+                  consultas.clear()
+
+                  if (encontrados.isEmpty()) {
+                      val vazio = TextView(this)
+                      vazio.text = "Nenhum produto encontrado nesse endereço na base atual."
+                      vazio.textSize = 16f
+                      vazio.setTextColor(Color.parseColor("#757575"))
+                      vazio.setPadding(20, 30, 20, 30)
+                      containerLista.addView(vazio)
+                  } else {
+                      encontrados.forEach { adicionarConsulta(it) }
+                      Toast.makeText(
+                          this,
+                          "${encontrados.size} produto(s) encontrado(s).",
+                          Toast.LENGTH_SHORT
+                      ).show()
+                  }
+
+                  etEnderecoConsulta.setText("")
+              }
+
+              private fun interpretarBuscaEndereco(
+                  busca: String
+              ): List<String>? {
+                  val tokens = busca
+                      .replace(Regex("[,;/|]+"), " ")
+                      .split(Regex("\\s+"))
+                      .filter { it.isNotBlank() }
+                      .toMutableList()
+
+                  if (tokens.isEmpty()) return null
+
+                  // Aceita tanto a forma curta "1 1 5 B" quanto a forma
+                  // identificada "Rua 1 Rack 1 Coluna 5 Linha B".
+                  val palavrasCampo = setOf(
+                      "rua", "estacao", "rack", "coluna", "linha"
+                  )
+
+                  val possuiNomesDeCampo = tokens.any { it in palavrasCampo }
+
+                  if (!possuiNomesDeCampo) {
+                      return if (tokens.size in 1..4) tokens else null
+                  }
+
+                  val resultado = arrayOfNulls<String>(4)
+                  var i = 0
+
+                  while (i < tokens.size) {
+                      val campo = tokens[i]
+                      if (campo !in palavrasCampo || i + 1 >= tokens.size) {
+                          return null
+                      }
+
+                      val indice = when (campo) {
+                          "rua", "estacao" -> 0
+                          "rack" -> 1
+                          "coluna" -> 2
+                          "linha" -> 3
+                          else -> -1
+                      }
+
+                      if (indice < 0 || resultado[indice] != null) return null
+
+                      resultado[indice] = tokens[i + 1]
+                      i += 2
+                  }
+
+                  // Não permite pular um campo no formato identificado.
+                  // Para buscas parciais, a forma curta deve ser usada.
+                  if (resultado.any { it == null }) return null
+
+                  return resultado.map { it!! }
+              }
+
+              private fun enderecoBateExatamente(
+                  produto: EnderecoProduto,
+                  partesBusca: List<String>
+              ): Boolean {
+                  if (partesBusca.isEmpty() || partesBusca.size > 4) return false
+
+                  val valoresProduto = listOf(
+                      produto.rua,
+                      produto.rack,
+                      produto.coluna,
+                      produto.linha
+                  )
+
+                  return partesBusca.indices.all { indice ->
+                      componenteEnderecoIgual(
+                          valoresProduto[indice],
+                          partesBusca[indice]
+                      )
+                  }
+              }
+
+              private fun componenteEnderecoIgual(
+                  valorProduto: String,
+                  valorBusca: String
+              ): Boolean {
+                  val produto = normalizarComponenteEndereco(valorProduto)
+                  val busca = normalizarComponenteEndereco(valorBusca)
+
+                  if (produto.isEmpty() || busca.isEmpty()) return false
+
+                  // Para campos numéricos, "01" e "1" representam o mesmo
+                  // endereço, mas "1" não casa com "10".
+                  val numeroProduto = Regex("^\\d+$").matchEntire(produto)?.value
+                  val numeroBusca = Regex("^\\d+$").matchEntire(busca)?.value
+
+                  if (numeroProduto != null && numeroBusca != null) {
+                      return numeroProduto.toIntOrNull() == numeroBusca.toIntOrNull()
+                  }
+
+                  // Para linha/texto, a comparação é exata.
+                  return produto == busca
+              }
+
+              private fun normalizarComponenteEndereco(
+                  valor: String
+              ): String {
+                  return normalizarTexto(valor)
+                      .replace(
+                          Regex("^(rua|estacao|rack|coluna|linha)\\s+"),
+                          ""
+                      )
+                      .trim()
+              }
+
+              private fun enderecoCorresponde(
+                  produto: EnderecoProduto,
+                  busca: String
+              ): Boolean {
+                  val normalizadoBusca = normalizarTexto(busca)
+                  if (normalizadoBusca.isEmpty()) return false
+                  val endereco = normalizarTexto(
+                      listOf(produto.rua, produto.rack, produto.coluna, produto.linha)
+                          .filter { it.isNotBlank() }
+                          .joinToString(" ")
+                  )
+                  val termos = normalizadoBusca.split(Regex("\\s+"))
+                      .filter { it.isNotBlank() }
+                  return endereco.isNotEmpty() && termos.all { endereco.contains(it) }
+              }
+
+              private fun normalizarTexto(texto: String): String {
+                  return java.text.Normalizer.normalize(
+                      texto.trim().lowercase(Locale.getDefault()),
+                      java.text.Normalizer.Form.NFD
+                  ).replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+                      .replace(Regex("\\s+"), " ")
+              }
+
+              private fun extrairCodigoMate(entrada: String): String {
+                  val numeros = entrada.filter { it.isDigit() }
+                  return when {
+                      numeros.length == 5 -> numeros
+                      numeros.length >= 6 -> numeros.dropLast(1).takeLast(5)
+                      else -> ""
+                  }
+              }
+
+              private fun adicionarConsulta(produto: EnderecoProduto) {
+                  consultas.add(
+                      ItemConsulta(
+                          codigo = produto.codigo,
+                          descricao = produto.descricao,
+                          rua = produto.rua,
+                          rack = produto.rack,
+                          coluna = produto.coluna,
+                          linha = produto.linha,
+                          timestamp = System.currentTimeMillis()
+                      )
+                  )
+
+                  atualizarConsultas()
+              }
+
+              private fun atualizarConsultas() {
+                  containerLista.removeAllViews()
+
+                  if (consultas.isEmpty()) {
+                      val vazio = TextView(this)
+                      vazio.text = "Nenhuma consulta realizada ainda."
+                      vazio.textSize = 16f
+                      vazio.setTextColor(Color.parseColor("#757575"))
+                      vazio.setPadding(20, 30, 20, 30)
+                      containerLista.addView(vazio)
+                      return
+                  }
+
+                  for (consulta in consultas.reversed()) {
+                      val card = LinearLayout(this)
+                      card.orientation = LinearLayout.VERTICAL
+                      card.setPadding(28, 24, 28, 24)
+                      card.setBackgroundColor(Color.WHITE)
+
+                      val params = LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT,
+                          LinearLayout.LayoutParams.WRAP_CONTENT
+                      )
+                      params.setMargins(0, 8, 0, 8)
+                      card.layoutParams = params
+
+                      val tvCodigo = TextView(this)
+                      tvCodigo.text = consulta.codigo
+                      tvCodigo.textSize = 21f
+                      tvCodigo.setTextColor(Color.parseColor("#1565C0"))
+                      tvCodigo.setTypeface(
+                          null,
+                          android.graphics.Typeface.BOLD
+                      )
+                      card.addView(tvCodigo)
+
+                      val btnCopiar = Button(this)
+                      btnCopiar.text = "📋 COPIAR CÓDIGO"
+                      btnCopiar.setOnClickListener {
+                          val clipboard =
+                              getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                          clipboard.setPrimaryClip(
+                              android.content.ClipData.newPlainText(
+                                  "Código Material",
+                                  consulta.codigo
+                              )
+                          )
+                          Toast.makeText(
+                              this,
+                              "Código ${consulta.codigo} copiado!",
+                              Toast.LENGTH_SHORT
+                          ).show()
+                      }
+                      val copiarParams = LinearLayout.LayoutParams(-2, -2)
+                      copiarParams.topMargin = 4
+                      btnCopiar.layoutParams = copiarParams
+                      card.addView(btnCopiar)
+
+                      val tvProduto = TextView(this)
+                      tvProduto.text = consulta.descricao
+                      tvProduto.textSize = 16f
+                      tvProduto.setTextColor(Color.parseColor("#212121"))
+
+                      val produtoParams = LinearLayout.LayoutParams(-1, -2)
+                      produtoParams.topMargin = 8
+                      tvProduto.layoutParams = produtoParams
+                      card.addView(tvProduto)
+
+                      val tvEndereco = TextView(this)
+                      tvEndereco.text = if (consulta.rua.isBlank() && consulta.rack.isBlank() &&
+                          consulta.coluna.isBlank() && consulta.linha.isBlank()) {
+                          "⚠ Sem endereço cadastrado"
+                      } else {
+                          "${consulta.rua} — ${consulta.rack}\n" +
+                          "Coluna ${consulta.coluna} — Linha ${consulta.linha}"
+                      }
+                      tvEndereco.textSize = 17f
+                      tvEndereco.setTextColor(Color.parseColor("#1565C0"))
+                      tvEndereco.setTypeface(
+                          null,
+                          android.graphics.Typeface.BOLD
+                      )
+
+                      val enderecoParams = LinearLayout.LayoutParams(-1, -2)
+                      enderecoParams.topMargin = 18
+                      tvEndereco.layoutParams = enderecoParams
+                      card.addView(tvEndereco)
+
+                      containerLista.addView(card)
+                  }
+              }
+
+              private fun confirmarLimparConsultas() {
+                  if (consultas.isEmpty()) {
+                      Toast.makeText(
+                          this,
+                          "Não há consultas para limpar.",
+                          Toast.LENGTH_SHORT
+                      ).show()
+                      return
+                  }
+
+                  AlertDialog.Builder(this)
+                      .setTitle("Limpar consultas?")
+                      .setMessage(
+                          "Todos os resultados de consulta desta sessão serão removidos."
+                      )
+                      .setNegativeButton("CANCELAR", null)
+                      .setPositiveButton("LIMPAR") { _, _ ->
+                          consultas.clear()
+                          atualizarConsultas()
+                      }
+                      .show()
+              }
+
+              private fun adicionarReposicao(produto: EnderecoProduto) {
+                  val existente = registros.find {
+                      it.codigo == produto.codigo && it.status != STATUS_CONCLUIDO
+                  }
+
+                  if (existente != null) {
+                      AlertDialog.Builder(this)
+                          .setTitle("Código já solicitado")
+                          .setMessage(
+                              "O código ${produto.codigo} já possui " +
+                              "${existente.quantidade} caixa(s) pendente(s).\n\n" +
+                              "Adicionar mais uma caixa?"
+                          )
+                          .setNegativeButton("CANCELAR", null)
+                          .setPositiveButton("ADICIONAR") { _, _ ->
+                              existente.quantidade += 1
+
+                              salvarRegistros()
+                              salvarNoFirestore(existente)
+
+                              tvFeedback.text =
+                                  "${existente.quantidade} cx ${produto.codigo} pendentes"
+                              tvFeedback.visibility = View.VISIBLE
+
+                              atualizarInterface()
+                          }
+                          .show()
+
+                      return
+                  }
+
+                  val novo = ItemReposicao(
+                      id = UUID.randomUUID().toString(),
+                      codigo = produto.codigo,
+                      descricao = produto.descricao,
+                      quantidade = 1,
+                      rua = produto.rua,
+                      rack = produto.rack,
+                      coluna = produto.coluna,
+                      linha = produto.linha,
+                      operador = nomeOperador,
+                      timestamp = System.currentTimeMillis(),
+                      status = STATUS_PENDENTE,
+                      separador = "",
+                      dispositivo = dispositivoId
+                  )
+
+                  registros.add(novo)
+
+                  salvarRegistros()
+                  salvarNoFirestore(novo)
+
+                  tvFeedback.text =
+                      "Produto ${produto.codigo} adicionado à reposição."
+                  tvFeedback.visibility = View.VISIBLE
+
+                  atualizarInterface()
+              }
+
+              private fun atualizarBotoesOrdenacao() {
+                  btnOrdenarEndereco.alpha = if (ordenarPorEndereco) 1.0f else 0.55f
+                  btnOrdenarAntigos.alpha = if (!ordenarPorEndereco) 1.0f else 0.55f
+              }
+
+              private fun numeroEndereco(valor: String): Int {
+                  return Regex("\\d+").find(valor)?.value?.toIntOrNull() ?: Int.MAX_VALUE
+              }
+
+              private fun textoEndereco(valor: String): String {
+                  return valor.trim().lowercase(Locale.getDefault())
+              }
+
+              private fun atualizarInterface() {
+                  if (modoConsulta) {
+                      atualizarConsultas()
+                      return
+                  }
+
+                  val pendentes = registros.filter { it.status == STATUS_PENDENTE }
+                  val emSeparacao = registros.filter { it.status == STATUS_SEPARACAO }
+                  val concluidos = registros.filter { it.status == STATUS_CONCLUIDO }
+
+                  tvPendentes.text =
+                      pendentes.sumOf { it.quantidade }.toString()
+
+                  tvConcluidos.text =
+                      concluidos.sumOf { it.quantidade }.toString()
+
+                  tvTotal.text =
+                      registros.sumOf { it.quantidade }.toString()
+
+                  containerLista.removeAllViews()
+
+                  val termoPesquisa = etPesquisa.text.toString().trim().lowercase(Locale.getDefault())
+
+                  val todos = when {
+                      abaConcluidos -> concluidos
+                      abaEmSeparacao -> emSeparacao
+                      else -> pendentes
+                  }
+
+                  val filtrados = if (termoPesquisa.isEmpty()) {
+                      todos
+                  } else {
+                      todos.filter { item ->
+                          listOf(item.codigo, item.descricao, item.rua, item.rack, item.coluna, item.linha)
+                              .any { valor -> valor.lowercase(Locale.getDefault()).contains(termoPesquisa) }
+                      }
+                  }
+
+                  val lista = if (ordenarPorEndereco) {
+                      filtrados.sortedWith(
+                          compareBy<ItemReposicao> { numeroEndereco(it.rua) }
+                              .thenBy { textoEndereco(it.rua) }
+                              .thenBy { numeroEndereco(it.rack) }
+                              .thenBy { textoEndereco(it.rack) }
+                              .thenBy { numeroEndereco(it.coluna) }
+                              .thenBy { textoEndereco(it.coluna) }
+                              .thenBy { textoEndereco(it.linha) }
+                              .thenBy { it.timestamp }
+                      )
+                  } else {
+                      filtrados.sortedWith(
+                          compareBy<ItemReposicao> { it.timestamp }
+                              .thenBy { numeroEndereco(it.rua) }
+                              .thenBy { textoEndereco(it.rua) }
+                              .thenBy { numeroEndereco(it.rack) }
+                              .thenBy { numeroEndereco(it.coluna) }
+                      )
+                  }
+
+                  btnPendentes.setText("PENDENTES (${pendentes.sumOf { it.quantidade }})")
+                  btnEmSeparacao.setText("EM SEPARAÇÃO (${emSeparacao.sumOf { it.quantidade }})")
+                  btnConcluidos.setText("CONCLUÍDOS (${concluidos.sumOf { it.quantidade }})")
+
+                  btnPendentes.setBackgroundColor(if (!abaConcluidos && !abaEmSeparacao) Color.parseColor("#1565C0") else Color.parseColor("#E0E0E0"))
+                  btnEmSeparacao.setBackgroundColor(if (abaEmSeparacao) Color.parseColor("#E65100") else Color.parseColor("#E0E0E0"))
+                  btnConcluidos.setBackgroundColor(if (abaConcluidos) Color.parseColor("#1565C0") else Color.parseColor("#E0E0E0"))
+                  btnPendentes.setTextColor(if (!abaConcluidos && !abaEmSeparacao) Color.WHITE else Color.BLACK)
+                  btnEmSeparacao.setTextColor(if (abaEmSeparacao) Color.WHITE else Color.BLACK)
+                  btnConcluidos.setTextColor(if (abaConcluidos) Color.WHITE else Color.BLACK)
+
+                  if (lista.isEmpty()) {
+                      val vazio = TextView(this)
+                      vazio.text = when {
+                          abaConcluidos -> "Nenhuma reposição concluída."
+                          abaEmSeparacao -> "Nenhuma reposição em separação."
+                          else -> "Nenhum produto pendente de reposição."
+                      }
+                      vazio.textSize = 16f
+                      vazio.setTextColor(Color.parseColor("#757575"))
+                      vazio.setPadding(20, 30, 20, 30)
+                      containerLista.addView(vazio)
+                      return
+                  }
+
+                  val formato =
+                      SimpleDateFormat(
+                          "dd/MM/yyyy HH:mm",
+                          Locale.getDefault()
+                      )
+
+                  for (item in lista) {
+                      val view =
+                          LayoutInflater.from(this).inflate(
+                              R.layout.item_reposicao,
+                              containerLista,
+                              false
+                          )
+
+                      val tvCodigo =
+                          view.findViewById<TextView>(R.id.tvCodigo)
+
+                      val tvProduto =
+                          view.findViewById<TextView>(R.id.tvProduto)
+
+                      val tvEndereco =
+                          view.findViewById<TextView>(R.id.tvEndereco)
+
+                      val tvDetalhes =
+                          view.findViewById<TextView>(R.id.tvDetalhes)
+
+                      val tvStatus =
+                          view.findViewById<TextView>(R.id.tvStatus)
+
+                      val btnAcao =
+                          view.findViewById<Button>(R.id.btnAcao)
+
+                      val btnExcluir =
+                          view.findViewById<Button>(R.id.btnExcluir)
+
+                      val btnCopiarItem =
+                          view.findViewById<Button>(R.id.btnCopiarItem)
+
+                      btnCopiarItem.setOnClickListener {
+                          val clipboard =
+                              getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                          clipboard.setPrimaryClip(
+                              android.content.ClipData.newPlainText(
+                                  "Código Material",
+                                  item.codigo
+                              )
+                          )
+                          Toast.makeText(
+                              this,
+                              "Código ${item.codigo} copiado!",
+                              Toast.LENGTH_SHORT
+                          ).show()
+                      }
+
+                      tvCodigo.text =
+                          "${item.quantidade} cx ${item.codigo}"
+
+                      tvProduto.text =
+                          item.descricao
+
+                      tvEndereco.text =
+                          "${item.rua} — ${item.rack}\n" +
+                          "Coluna ${item.coluna} — Linha ${item.linha}"
+
+                      tvDetalhes.text =
+                          "Solicitado por: ${item.operador}\n" +
+                          (if (item.separador.isNotBlank()) "Em separação por: ${item.separador}\n" else "") +
+                          formato.format(Date(item.timestamp))
+
+                      when (item.status) {
+                          STATUS_CONCLUIDO -> {
+                              tvStatus.text = "CONCLUÍDO"
+                              tvStatus.setTextColor(Color.parseColor("#1B5E20"))
+                              tvStatus.setBackgroundColor(Color.parseColor("#C8E6C9"))
+                              btnAcao.text = "DESFAZER"
+                              btnExcluir.visibility = View.VISIBLE
+                              btnAcao.setOnClickListener {
+                                  item.status = STATUS_PENDENTE
+                                  item.separador = ""
+                                  salvarRegistros()
+                                  salvarNoFirestore(item)
+                                  atualizarInterface()
+                              }
+                          }
+                          STATUS_SEPARACAO -> {
+                              tvStatus.text = "EM SEPARAÇÃO"
+                              tvStatus.setTextColor(Color.parseColor("#E65100"))
+                              tvStatus.setBackgroundColor(Color.parseColor("#FFE0B2"))
+                              btnAcao.text = "CONCLUIR"
+                              btnExcluir.visibility = View.VISIBLE
+                              btnAcao.setOnClickListener {
+                                  item.status = STATUS_CONCLUIDO
+                                  salvarRegistros()
+                                  salvarNoFirestore(item)
+                                  atualizarInterface()
+                              }
+                          }
+                          else -> {
+                              tvStatus.text = "PENDENTE"
+                              tvStatus.setTextColor(Color.parseColor("#B71C1C"))
+                              tvStatus.setBackgroundColor(Color.parseColor("#FFCDD2"))
+                              btnAcao.text = "EM SEPARAÇÃO"
+                              btnExcluir.visibility = View.VISIBLE
+                              btnAcao.setOnClickListener {
+                                  item.status = STATUS_SEPARACAO
+                                  item.separador = nomeOperador
+                                  salvarRegistros()
+                                  salvarNoFirestore(item)
+                                  atualizarInterface()
+                              }
+                          }
+                      }
+
+                      btnExcluir.setOnClickListener {
+                          confirmarExcluir(item)
+                      }
+
+                      containerLista.addView(view)
+                  }
+              }
+
+              private fun confirmarExcluir(item: ItemReposicao) {
+                  AlertDialog.Builder(this)
+                      .setTitle("Excluir registro?")
+                      .setMessage(
+                          "Esse registro será apagado permanentemente em todos os aparelhos."
+                      )
+                      .setNegativeButton("CANCELAR", null)
+                      .setPositiveButton("EXCLUIR") { _, _ ->
+                          registros.removeAll { it.id == item.id }
+                          salvarRegistros()
+                          excluirDoFirestore(item)
+                          atualizarInterface()
+                      }
+                      .show()
+              }
+
+              private fun carregarOperador() {
+                  val prefs =
+                      getSharedPreferences(
+                          PREFS,
+                          Context.MODE_PRIVATE
+                      )
+
+                  nomeOperador =
+                      prefs.getString(
+                          KEY_OPERADOR,
+                          "Operador 1"
+                      ) ?: "Operador 1"
+
+                  tvOperador.text =
+                      "Operador: $nomeOperador"
+              }
+
+              private fun carregarOperadorDaNuvem() {
+                  operadorListener?.remove()
+                  operadorListener =
+                      db.collection(COLECAO_OPERADORES)
+                          .document(dispositivoId)
+                          .addSnapshotListener { doc, error ->
+                              if (error != null || doc == null) return@addSnapshotListener
+
+                              val nomeNuvem = doc.getString("nomeOperador")?.trim()
+                              if (!nomeNuvem.isNullOrEmpty()) {
+                                  nomeOperador = nomeNuvem
+                                  getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                      .edit()
+                                      .putString(KEY_OPERADOR, nomeOperador)
+                                      .apply()
+                                  tvOperador.text = "Operador: $nomeOperador"
+                              } else {
+                                  salvarOperadorNaNuvem()
+                              }
+                          }
+              }
+
+              private fun salvarOperadorNaNuvem() {
+                  db.collection(COLECAO_OPERADORES)
+                      .document(dispositivoId)
+                      .set(
+                          hashMapOf(
+                              "nomeOperador" to nomeOperador,
+                              "dispositivo" to dispositivoId,
+                              "atualizadoEm" to System.currentTimeMillis()
+                          ),
+                          SetOptions.merge()
+                      )
+              }
+
+              private fun alterarNomeOperador() {
+                  val input = EditText(this)
+                  input.setText(nomeOperador)
+                  input.selectAll()
+
+                  AlertDialog.Builder(this)
+                      .setTitle("Nome do operador")
+                      .setMessage(
+                          "Digite o nome que identificará este aparelho."
+                      )
+                      .setView(input)
+                      .setNegativeButton("CANCELAR", null)
+                      .setPositiveButton("SALVAR") { _, _ ->
+                          val novo =
+                              input.text.toString().trim()
+
+                          if (novo.isNotEmpty()) {
+                              nomeOperador = novo
+
+                              getSharedPreferences(
+                                  PREFS,
+                                  Context.MODE_PRIVATE
+                              )
+                                  .edit()
+                                  .putString(
+                                      KEY_OPERADOR,
+                                      novo
+                                  )
+                                  .apply()
+
+                              tvOperador.text =
+                                  "Operador: $nomeOperador"
+
+                              salvarOperadorNaNuvem()
+                          }
+                      }
+                      .show()
+              }
+
+              private fun salvarRegistros() {
+                  val array = JSONArray()
+
+                  for (item in registros) {
+                      val obj = JSONObject()
+
+                      obj.put("id", item.id)
+                      obj.put("codigo", item.codigo)
+                      obj.put("descricao", item.descricao)
+                      obj.put("quantidade", item.quantidade)
+                      obj.put("rua", item.rua)
+                      obj.put("rack", item.rack)
+                      obj.put("coluna", item.coluna)
+                      obj.put("linha", item.linha)
+                      obj.put("operador", item.operador)
+                      obj.put("timestamp", item.timestamp)
+                      obj.put("concluido", item.concluido)
+                      obj.put("status", item.status)
+                      obj.put("separador", item.separador)
+                      obj.put("dispositivo", item.dispositivo)
+
+                      array.put(obj)
+                  }
+
+                  getSharedPreferences(
+                      PREFS,
+                      Context.MODE_PRIVATE
+                  )
+                      .edit()
+                      .putString(
+                          KEY_REGISTROS,
+                          array.toString()
+                      )
+                      .apply()
+              }
+
+              private fun carregarRegistros() {
+                  try {
+                      val texto =
+                          getSharedPreferences(
+                              PREFS,
+                              Context.MODE_PRIVATE
+                          )
+                              .getString(
+                                  KEY_REGISTROS,
+                                  null
+                              ) ?: return
+
+                      val array = JSONArray(texto)
+
+                      registros.clear()
+
+                      for (i in 0 until array.length()) {
+                          val obj =
+                              array.getJSONObject(i)
+
+                          registros.add(
+                              ItemReposicao(
+                                  id = obj.getString("id"),
+                                  codigo = obj.getString("codigo"),
+                                  descricao = obj.optString(
+                                      "descricao",
+                                      ""
+                                  ),
+                                  quantidade = obj.getInt(
+                                      "quantidade"
+                                  ),
+                                  rua = obj.getString("rua"),
+                                  rack = obj.getString("rack"),
+                                  coluna = obj.getString("coluna"),
+                                  linha = obj.getString("linha"),
+                                  operador = obj.getString("operador"),
+                                  timestamp = obj.getLong("timestamp"),
+                                  status = obj.optString("status", if (obj.optBoolean("concluido", false)) STATUS_CONCLUIDO else STATUS_PENDENTE),
+                                  separador = obj.optString("separador", ""),
+                                  dispositivo = obj.optString("dispositivo", "")
+                              )
+                          )
+                      }
+                  } catch (_: Exception) {
+                      registros.clear()
+                  }
+              }
+
+              // =========================================================
+              // FIRESTORE
+              // =========================================================
+
+              private fun dadosFirestore(
+                  item: ItemReposicao
+              ): HashMap<String, Any> {
+                  return hashMapOf(
+                      "id" to item.id,
+                      "codigo" to item.codigo,
+                      "descricao" to item.descricao,
+                      "quantidade" to item.quantidade,
+                      "rua" to item.rua,
+                      "rack" to item.rack,
+                      "coluna" to item.coluna,
+                      "linha" to item.linha,
+                      "operador" to item.operador,
+                      "timestamp" to item.timestamp,
+                      "concluido" to item.concluido,
+                      "status" to item.status,
+                      "separador" to item.separador,
+                      "dispositivo" to item.dispositivo
+                  )
+              }
+
+              private fun salvarNoFirestore(
+                  item: ItemReposicao
+              ) {
+                  db.collection(COLECAO_REPOSICOES)
+                      .document(item.id)
+                      .set(
+                          dadosFirestore(item),
+                          SetOptions.merge()
+                      )
+                      .addOnFailureListener { e ->
+                          Toast.makeText(
+                              this,
+                              "Não foi possível sincronizar ${item.codigo}: ${e.message}",
+                              Toast.LENGTH_LONG
+                          ).show()
+                      }
+              }
+
+              private fun excluirDoFirestore(
+                  item: ItemReposicao
+              ) {
+                  db.collection(COLECAO_REPOSICOES)
+                      .document(item.id)
+                      .delete()
+                      .addOnFailureListener { e ->
+                          Toast.makeText(
+                              this,
+                              "Erro ao excluir do Firestore: ${e.message}",
+                              Toast.LENGTH_LONG
+                          ).show()
+                      }
+              }
+
+              private fun iniciarSincronizacaoFirestore() {
+                  firestoreListener?.remove()
+                  firestoreSnapshotInicial = true
+
+                  firestoreListener =
+                      db.collection(COLECAO_REPOSICOES)
+                          .addSnapshotListener { snapshot, error ->
+
+                              if (error != null) {
+                                  Toast.makeText(
+                                      this,
+                                      "Firebase: não foi possível sincronizar. Verifique a conexão.",
+                                      Toast.LENGTH_LONG
+                                  ).show()
+                                  return@addSnapshotListener
+                              }
+
+                              if (snapshot == null) return@addSnapshotListener
+
+                              firestoreSnapshotInicial = false
+
+                              val remotos =
+                                  snapshot.documents.mapNotNull { doc ->
+                                      try {
+                                          ItemReposicao(
+                                              id = doc.getString("id")
+                                                  ?: doc.id,
+                                              codigo = doc.getString("codigo")
+                                                  ?: return@mapNotNull null,
+                                              descricao = doc.getString("descricao")
+                                                  ?: "",
+                                              quantidade =
+                                                  (doc.getLong("quantidade")
+                                                      ?: 1L).toInt(),
+                                              rua = doc.getString("rua")
+                                                  ?: "",
+                                              rack = doc.getString("rack")
+                                                  ?: "",
+                                              coluna = doc.getString("coluna")
+                                                  ?: "",
+                                              linha = doc.getString("linha")
+                                                  ?: "",
+                                              operador = doc.getString("operador")
+                                                  ?: "",
+                                              timestamp =
+                                                  doc.getLong("timestamp")
+                                                      ?: 0L,
+                                              status =
+                                                  doc.getString("status")
+                                                      ?: if (doc.getBoolean("concluido") == true) STATUS_CONCLUIDO else STATUS_PENDENTE,
+                                              separador =
+                                                  doc.getString("separador")
+                                                      ?: "",
+                                              dispositivo =
+                                                  doc.getString("dispositivo")
+                                                      ?: ""
+                                          )
+                                      } catch (_: Exception) {
+                                          null
+                                      }
+                                  }
+
+                              registros.clear()
+                              registros.addAll(remotos)
+                              salvarRegistros()
+                              atualizarInterface()
+                          }
+              }
+
+              // =========================================================
+              // CONFIGURAÇÕES
+              // =========================================================
+              // A tela de configurações permite substituir a planilha de
+              // endereços salva no aparelho. A nova base passa a ser usada
+              // imediatamente nas consultas, bipagens e leituras pela câmera.
+              private fun abrirConfiguracoes() {
+                  val opcoes =
+                      arrayOf(
+                          "🔔 Notificações e monitoramento",
+                          "📦 Estoque de caixas fechadas",
+                          "Atualizar planilha de endereços (.xlsx)",
+                          "Informações da base atual",
+                          "Recarregar sincronização Firebase"
+                      )
+
+                  AlertDialog.Builder(this)
+                      .setTitle("Configurações")
+                      .setItems(opcoes) { _, posicao ->
+                          when (posicao) {
+                              0 -> abrirConfiguracoesNotificacao()
+                              1 -> abrirEstoqueCaixas()
+                              2 -> selecionarPlanilha()
+                              3 -> mostrarInformacoesBase()
+                              4 -> iniciarSincronizacaoFirestore()
+                          }
+                      }
+                      .show()
+              }
+
+              private fun abrirEstoqueCaixas() {
+                  startActivity(Intent(this, CaixasActivity::class.java))
+              }
+
+              private fun selecionarPlanilha() {
+                  val intent =
+                      Intent(Intent.ACTION_OPEN_DOCUMENT)
+
+                  intent.addCategory(
+                      Intent.CATEGORY_OPENABLE
+                  )
+
+                  intent.type =
+                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+                  intent.putExtra(
+                      Intent.EXTRA_MIME_TYPES,
+                      arrayOf(
+                          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                          "application/vnd.ms-excel.sheet.macroEnabled.12",
+                          "application/vnd.ms-excel"
+                      )
+                  )
+
+                  startActivityForResult(
+                      intent,
+                      REQUEST_IMPORT_XLSX
+                  )
+              }
+
+              private fun mostrarInformacoesBase() {
+                  AlertDialog.Builder(this)
+                      .setTitle("Base de endereços")
+                      .setMessage(
+                          "Produtos mapeados: ${baseProdutos.size}\n\n" +
+                          "Campos utilizados:\n\n" +
+                          "• Código Mate\n" +
+                          "• Descrição do produto\n" +
+                          "• Rua / Estação\n" +
+                          "• Rack\n" +
+                          "• Coluna\n" +
+                          "• Linha\n\n" +
+                          "Reposições: sincronizadas em tempo real pelo Firebase Firestore."
+                      )
+                      .setPositiveButton("OK", null)
+                      .show()
+              }
+
+              @Deprecated("Deprecated in Java")
+              override fun onActivityResult(
+                  requestCode: Int,
+                  resultCode: Int,
+                  data: Intent?
+              ) {
+                  super.onActivityResult(
+                      requestCode,
+                      resultCode,
+                      data
+                  )
+
+                  if (
+                      requestCode == REQUEST_IMPORT_XLSX &&
+                      resultCode == Activity.RESULT_OK
+                  ) {
+                      val uri = data?.data ?: return
+                      importarPlanilha(uri)
+                  }
+              }
+
+              private fun importarPlanilha(
+                  uri: Uri
+              ) {
+                  try {
+                      val arquivo =
+                          File(
+                              filesDir,
+                              PLANILHA_INTERNA
+                          )
+
+                      val inputStream = contentResolver
+                          .openInputStream(uri)
+                          ?: throw Exception("Não foi possível abrir o arquivo selecionado.")
+
+                      inputStream.use { input ->
+                          FileOutputStream(arquivo).use { output ->
+                              input.copyTo(output)
+                          }
+                      }
+
+                      carregarPlanilha(
+                          FileInputStream(arquivo)
+                      )
+
+                      Toast.makeText(
+                          this,
+                          "Planilha atualizada!\n${baseProdutos.size} produtos encontrados.",
+                          Toast.LENGTH_LONG
+                      ).show()
+
+                  } catch (e: Exception) {
+                      Toast.makeText(
+                          this,
+                          "Erro ao importar planilha: ${e.message}",
+                          Toast.LENGTH_LONG
+                      ).show()
+                  }
+              }
+
+              private fun carregarBaseEnderecos() {
+                  val arquivo =
+                      File(
+                          filesDir,
+                          PLANILHA_INTERNA
+                      )
+
+                  try {
+                      if (arquivo.exists()) {
+                          carregarPlanilha(
+                              FileInputStream(arquivo)
+                          )
+                      } else {
+                          assets
+                              .open("enderecos.xlsx")
+                              .use { input ->
+                                  carregarPlanilha(input)
+                              }
+                      }
+                  } catch (_: Exception) {
+                      Toast.makeText(
+                          this,
+                          "Erro ao carregar a planilha de endereços.",
+                          Toast.LENGTH_LONG
+                      ).show()
+                  }
+              }
+
+              private fun carregarPlanilha(
+                  input: InputStream
+              ) {
+                  val arquivoTemp =
+                      File(
+                          cacheDir,
+                          "planilha_temp.xlsx"
+                      )
+
+                  FileOutputStream(arquivoTemp)
+                      .use { output ->
+                          input.copyTo(output)
+                      }
+
+                  baseProdutos.clear()
+
+                  ZipFile(arquivoTemp).use { zip ->
+                      val sharedStrings =
+                          mutableListOf<String>()
+
+                      val shared =
+                          zip.getEntry(
+                              "xl/sharedStrings.xml"
+                          )
+
+                      if (shared != null) {
+                          zip.getInputStream(shared)
+                              .use {
+                                  sharedStrings.addAll(
+                                      lerSharedStrings(it)
+                                  )
+                              }
+                      }
+
+                      val sheet =
+                          zip.entries()
+                              .asSequence()
+                              .firstOrNull {
+                                  it.name.startsWith(
+                                      "xl/worksheets/sheet"
+                                  ) &&
+                                  it.name.endsWith(".xml")
+                              }
+                              ?: throw Exception(
+                                  "Nenhuma planilha encontrada."
+                              )
+
+                      zip.getInputStream(sheet)
+                          .use {
+                              val linhas =
+                                  lerPlanilhaXML(
+                                      it,
+                                      sharedStrings
+                                  )
+
+                              processarLinhas(linhas)
+                          }
+                  }
+
+                  arquivoTemp.delete()
+              }
+
+              private fun lerSharedStrings(
+                  input: InputStream
+              ): List<String> {
+                  val resultado =
+                      mutableListOf<String>()
+
+                  val parser =
+                      Xml.newPullParser()
+
+                  parser.setInput(
+                      input,
+                      "UTF-8"
+                  )
+
+                  var textoAtual = ""
+                  var event = parser.eventType
+
+                  while (
+                      event != XmlPullParser.END_DOCUMENT
+                  ) {
+                      when (event) {
+                          XmlPullParser.START_TAG -> {
+                              if (parser.name == "si") {
+                                  textoAtual = ""
+                              }
+                          }
+
+                          XmlPullParser.TEXT -> {
+                              textoAtual += parser.text
+                          }
+
+                          XmlPullParser.END_TAG -> {
+                              if (parser.name == "si") {
+                                  resultado.add(textoAtual)
+                              }
+                          }
+                      }
+
+                      event = parser.next()
+                  }
+
+                  return resultado
+              }
+
+              private fun lerPlanilhaXML(
+                  input: InputStream,
+                  sharedStrings: List<String>
+              ): List<List<String>> {
+                  val resultado =
+                      mutableListOf<List<String>>()
+
+                  val parser =
+                      Xml.newPullParser()
+
+                  parser.setInput(
+                      input,
+                      "UTF-8"
+                  )
+
+                  var event = parser.eventType
+
+                  var linhaAtual =
+                      mutableMapOf<Int, String>()
+
+                  var colunaAtual = 0
+                  var tipoCelula = ""
+                  var valor = ""
+
+                  while (
+                      event != XmlPullParser.END_DOCUMENT
+                  ) {
+                      when (event) {
+                          XmlPullParser.START_TAG -> {
+                              when (parser.name) {
+                                  "row" -> {
+                                      linhaAtual =
+                                          mutableMapOf()
+                                  }
+
+                                  "c" -> {
+                                      val referencia =
+                                          parser.getAttributeValue(
+                                              null,
+                                              "r"
+                                          ) ?: ""
+
+                                      colunaAtual =
+                                          numeroColuna(
+                                              referencia
+                                          )
+
+                                      tipoCelula =
+                                          parser.getAttributeValue(
+                                              null,
+                                              "t"
+                                          ) ?: ""
+
+                                      valor = ""
+                                  }
+
+                                  "v", "t" -> {
+                                      valor = ""
+                                  }
+                              }
+                          }
+
+                          XmlPullParser.TEXT -> {
+                              valor += parser.text
+                          }
+
+                          XmlPullParser.END_TAG -> {
+                              when (parser.name) {
+                                  "c" -> {
+                                      var final =
+                                          valor.trim()
+
+                                      if (
+                                          tipoCelula == "s" &&
+                                          final.isNotEmpty()
+                                      ) {
+                                          val indice =
+                                              final.toIntOrNull()
+
+                                          if (
+                                              indice != null &&
+                                              indice < sharedStrings.size
+                                          ) {
+                                              final =
+                                                  sharedStrings[indice]
+                                          }
+                                      }
+
+                                      linhaAtual[colunaAtual] =
+                                          final
+                                  }
+
+                                  "row" -> {
+                                      if (
+                                          linhaAtual.isNotEmpty()
+                                      ) {
+                                          val max =
+                                              linhaAtual.keys.maxOrNull()
+                                                  ?: 0
+
+                                          val lista =
+                                              MutableList(
+                                                  max + 1
+                                              ) { "" }
+
+                                          for (
+                                              (indice, texto)
+                                              in linhaAtual
+                                          ) {
+                                              if (
+                                                  indice < lista.size
+                                              ) {
+                                                  lista[indice] =
+                                                      texto
+                                              }
+                                          }
+
+                                          resultado.add(lista)
+                                      }
+                                  }
+                              }
+                          }
+                      }
+
+                      event = parser.next()
+                  }
+
+                  return resultado
+              }
+
+              private fun numeroColuna(
+                  referencia: String
+              ): Int {
+                  var resultado = 0
+
+                  for (c in referencia) {
+                      if (c.isDigit()) break
+
+                      resultado =
+                          resultado * 26 +
+                          (
+                              c.uppercaseChar() -
+                              'A' +
+                              1
+                          )
+                  }
+
+                  return resultado - 1
+              }
+
+              private fun processarLinhas(
+                  linhas: List<List<String>>
+              ) {
+                  if (linhas.isEmpty()) return
+
+                  var indiceCabecalho = -1
+
+                  for (i in linhas.indices) {
+                      val texto =
+                          linhas[i]
+                              .joinToString("|")
+                              .lowercase()
+
+                      if (
+                          texto.contains("cod material") &&
+                          texto.contains("desc material")
+                      ) {
+                          indiceCabecalho = i
+                          break
+                      }
+                  }
+
+                  if (
+                      indiceCabecalho == -1
+                  ) {
+                      throw Exception(
+                          "Não foi possível localizar os cabeçalhos da planilha."
+                      )
+                  }
+
+                  val cabecalho =
+                      linhas[indiceCabecalho]
+
+                  fun localizar(
+                      nome: String
+                  ): Int {
+                      return cabecalho.indexOfFirst {
+                          it.trim().equals(
+                              nome,
+                              ignoreCase = true
+                          )
+                      }
+                  }
+
+                  val codMaterial =
+                      localizar("Cod Material")
+
+                  val descMaterial =
+                      localizar("Desc Material")
+
+                  val estacao =
+                      localizar("Estacao")
+
+                  val rack =
+                      localizar("Rack")
+
+                  val linhaProd =
+                      localizar("Linha prod alocado")
+
+                  val colunaProd =
+                      localizar("Coluna prod alocado")
+
+                  if (
+                      codMaterial < 0 ||
+                      descMaterial < 0 ||
+                      estacao < 0 ||
+                      rack < 0 ||
+                      linhaProd < 0 ||
+                      colunaProd < 0
+                  ) {
+                      throw Exception(
+                          "A planilha não possui todas as colunas necessárias."
+                      )
+                  }
+
+                  for (
+                      i in
+                      (indiceCabecalho + 1)
+                          until
+                          linhas.size
+                  ) {
+                      val linha =
+                          linhas[i]
+
+                      fun valor(
+                          indice: Int
+                      ): String {
+                          return if (
+                              indice >= 0 &&
+                              indice < linha.size
+                          ) {
+                              linha[indice].trim()
+                          } else {
+                              ""
+                          }
+                      }
+
+                      val codigo =
+                          valor(codMaterial)
+                              .filter { it.isDigit() }
+                              .takeLast(5)
+
+                      if (
+                          codigo.length != 5
+                      ) {
+                          continue
+                      }
+
+                      baseProdutos[codigo] =
+                          EnderecoProduto(
+                              codigo = codigo,
+                              descricao = valor(descMaterial),
+                              rua = valor(estacao),
+                              rack = valor(rack),
+                              coluna = valor(linhaProd),
+                              linha = valor(colunaProd)
+                          )
+                  }
+
+                  if (
+                      baseProdutos.isEmpty()
+                  ) {
+                      throw Exception(
+                          "Nenhum produto válido foi encontrado."
+                      )
+                  }
+              }
+          }
+          EOF
+
+      - name: Criar módulo de estoque de caixas fechadas
+        run: |
+          cat << 'EOF' > app/src/main/res/layout/activity_caixas.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:orientation="vertical"
+              android:background="#F5F5F5">
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="vertical"
+                  android:padding="14dp"
+                  android:background="#1565C0">
+
+                  <TextView
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:text="📦 Caixas Fechadas"
+                      android:textColor="#FFFFFF"
+                      android:textSize="22sp"
+                      android:textStyle="bold"/>
+
+                  <TextView
+                      android:id="@+id/tvCaixasOperador"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="6dp"
+                      android:text="Operador: Operador 1"
+                      android:textColor="#FFFFFF"
+                      android:textSize="14sp"/>
+              </LinearLayout>
+
+              <ScrollView
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent">
+
+                  <LinearLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:orientation="vertical"
+                      android:padding="12dp">
+
+                      <LinearLayout
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:orientation="horizontal">
+
+                          <Button
+                              android:id="@+id/btnEntradaCaixas"
+                              android:layout_width="0dp"
+                              android:layout_height="wrap_content"
+                              android:layout_weight="1"
+                              android:text="📥 ENTRADA"/>
+
+                          <Button
+                              android:id="@+id/btnEstoqueCaixas"
+                              android:layout_width="0dp"
+                              android:layout_height="wrap_content"
+                              android:layout_weight="1"
+                              android:layout_marginStart="5dp"
+                              android:text="📦 ESTOQUE"/>
+                      </LinearLayout>
+
+                      <TextView
+                          android:id="@+id/tvQuantidadeEstoque"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="10dp"
+                          android:text="Caixas disponíveis: 0"
+                          android:textColor="#1565C0"
+                          android:textSize="15sp"
+                          android:textStyle="bold"/>
+
+                      <LinearLayout
+                          android:id="@+id/containerEntradaCaixas"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:orientation="vertical">
+
+                          <TextView
+                              android:layout_width="match_parent"
+                              android:layout_height="wrap_content"
+                              android:layout_marginTop="10dp"
+                              android:text="1. Bipe a localização da caixaria. Ela permanecerá selecionada para as próximas caixas."
+                              android:textColor="#616161"
+                              android:textSize="15sp"/>
+
+                          <LinearLayout
+                              android:layout_width="match_parent"
+                              android:layout_height="wrap_content"
+                              android:layout_marginTop="8dp"
+                              android:orientation="horizontal"
+                              android:gravity="center_vertical">
+
+                              <EditText
+                                  android:id="@+id/etLocalizacao"
+                                  android:layout_width="0dp"
+                                  android:layout_height="wrap_content"
+                                  android:layout_weight="1"
+                                  android:hint="Localização (ex.: #3021)"
+                                  android:inputType="text"
+                                  android:imeOptions="actionDone"
+                                  android:padding="14dp"
+                                  android:maxLength="20"/>
+
+                              <Button
+                                  android:id="@+id/btnScannerLocal"
+                                  android:layout_width="58dp"
+                                  android:layout_height="58dp"
+                                  android:layout_marginStart="6dp"
+                                  android:text="📷"
+                                  android:textSize="22sp"
+                                  android:contentDescription="Bipar localização"/>
+                          </LinearLayout>
+
+                          <TextView
+                              android:id="@+id/tvLocalizacaoAtual"
+                              android:layout_width="match_parent"
+                              android:layout_height="wrap_content"
+                              android:layout_marginTop="6dp"
+                              android:text="📍 Nenhuma localização selecionada"
+                              android:textColor="#1565C0"
+                              android:textSize="16sp"
+                              android:textStyle="bold"/>
+
+                          <Button
+                              android:id="@+id/btnLimparLocal"
+                              android:layout_width="wrap_content"
+                              android:layout_height="wrap_content"
+                              android:layout_marginTop="4dp"
+                              android:text="TROCAR LOCALIZAÇÃO"/>
+
+                          <TextView
+                              android:layout_width="match_parent"
+                              android:layout_height="wrap_content"
+                              android:layout_marginTop="12dp"
+                              android:text="2. Bipe o código da caixa. Depois o leitor de validade será aberto automaticamente."
+                              android:textColor="#616161"
+                              android:textSize="15sp"/>
+
+                          <LinearLayout
+                              android:layout_width="match_parent"
+                              android:layout_height="wrap_content"
+                              android:layout_marginTop="6dp"
+                              android:orientation="horizontal"
+                              android:gravity="center_vertical">
+
+                              <EditText
+                                  android:id="@+id/etCodigoCaixa"
+                                  android:layout_width="0dp"
+                                  android:layout_height="wrap_content"
+                                  android:layout_weight="1"
+                                  android:hint="Código do produto"
+                                  android:inputType="number"
+                                  android:imeOptions="actionDone"
+                                  android:maxLength="20"
+                                  android:padding="14dp"/>
+
+                              <Button
+                                  android:id="@+id/btnScannerCodigoCaixa"
+                                  android:layout_width="58dp"
+                                  android:layout_height="58dp"
+                                  android:layout_marginStart="6dp"
+                                  android:text="📷"
+                                  android:textSize="22sp"
+                                  android:contentDescription="Bipar código da caixa"/>
+                          </LinearLayout>
+
+                          <TextView
+                              android:id="@+id/tvProdutoCaixa"
+                              android:layout_width="match_parent"
+                              android:layout_height="wrap_content"
+                              android:layout_marginTop="5dp"
+                              android:textColor="#424242"
+                              android:textSize="14sp"/>
+
+                          <TextView
+                              android:layout_width="match_parent"
+                              android:layout_height="wrap_content"
+                              android:layout_marginTop="12dp"
+                              android:text="3. A validade será bipada automaticamente. Use 'SEM VALIDADE' somente quando realmente não houver validade."
+                              android:textColor="#616161"
+                              android:textSize="15sp"/>
+
+                          <LinearLayout
+                              android:layout_width="match_parent"
+                              android:layout_height="wrap_content"
+                              android:layout_marginTop="6dp"
+                              android:orientation="horizontal"
+                              android:gravity="center_vertical">
+
+                              <EditText
+                                  android:id="@+id/etValidadeCaixa"
+                                  android:layout_width="0dp"
+                                  android:layout_height="wrap_content"
+                                  android:layout_weight="1"
+                                  android:hint="Validade (MM/AA)"
+                                  android:inputType="text"
+                                  android:imeOptions="actionDone"
+                                  android:maxLength="7"
+                                  android:padding="14dp"/>
+
+                              <Button
+                                  android:id="@+id/btnScannerValidadeCaixa"
+                                  android:layout_width="58dp"
+                                  android:layout_height="58dp"
+                                  android:layout_marginStart="6dp"
+                                  android:text="📷"
+                                  android:textSize="22sp"
+                                  android:contentDescription="Bipar validade"/>
+                          </LinearLayout>
+
+                          <Button
+                              android:id="@+id/btnSemValidade"
+                              android:layout_width="wrap_content"
+                              android:layout_height="wrap_content"
+                              android:layout_marginTop="4dp"
+                              android:text="SEM VALIDADE"
+                              android:textSize="12sp"/>
+
+                          <Button
+                              android:id="@+id/btnRegistrarCaixa"
+                              android:layout_width="match_parent"
+                              android:layout_height="wrap_content"
+                              android:layout_marginTop="8dp"
+                              android:text="REGISTRAR CAIXA"/>
+
+                          <TextView
+                              android:id="@+id/tvFeedbackCaixas"
+                              android:layout_width="match_parent"
+                              android:layout_height="wrap_content"
+                              android:layout_marginTop="10dp"
+                              android:padding="10dp"
+                              android:textColor="#1B5E20"
+                              android:textSize="15sp"
+                              android:visibility="gone"/>
+                      </LinearLayout>
+
+                      <LinearLayout
+                          android:id="@+id/containerEstoqueCaixas"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:orientation="vertical"
+                          android:visibility="gone">
+
+                          <LinearLayout
+                              android:layout_width="match_parent"
+                              android:layout_height="wrap_content"
+                              android:layout_marginTop="10dp"
+                              android:orientation="horizontal"
+                              android:gravity="center_vertical">
+
+                              <Button
+                                  android:id="@+id/btnFiltrosEstoque"
+                                  android:layout_width="0dp"
+                                  android:layout_height="wrap_content"
+                                  android:layout_weight="1"
+                                  android:text="🔽 FILTROS"/>
+
+                              <Button
+                                  android:id="@+id/btnExportarEstoque"
+                                  android:layout_width="0dp"
+                                  android:layout_height="wrap_content"
+                                  android:layout_weight="1"
+                                  android:layout_marginStart="6dp"
+                                  android:text="📊 EXPORTAR"/>
+                          </LinearLayout>
+
+                          <TextView
+                              android:id="@+id/tvFiltroEstoque"
+                              android:layout_width="match_parent"
+                              android:layout_height="wrap_content"
+                              android:layout_marginTop="6dp"
+                              android:text="Filtro: Todos • Ordenação: FEFO"
+                              android:textColor="#1565C0"
+                              android:textSize="14sp"
+                              android:textStyle="bold"/>
+
+                          <TextView
+                              android:layout_width="match_parent"
+                              android:layout_height="wrap_content"
+                              android:layout_marginTop="6dp"
+                              android:text="O estoque mostra cada caixa física disponível. O modo FEFO coloca as menores validades primeiro."
+                              android:textColor="#616161"
+                              android:textSize="14sp"/>
+
+                          <LinearLayout
+                              android:id="@+id/containerListaCaixas"
+                              android:layout_width="match_parent"
+                              android:layout_height="wrap_content"
+                              android:layout_marginTop="8dp"
+                              android:orientation="vertical"/>
+                      </LinearLayout>
+                  </LinearLayout>
+              </ScrollView>
+          </LinearLayout>
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/separacao/bip/CaixasActivity.kt
+          package com.separacao.bip
+
+          import android.app.Activity
+          import android.app.AlertDialog
+          import android.content.Context
+          import android.content.Intent
+          import android.graphics.Color
+          import android.net.Uri
+          import android.os.Bundle
+          import android.view.View
+          import android.widget.*
+          import androidx.appcompat.app.AppCompatActivity
+          import com.google.firebase.firestore.FirebaseFirestore
+          import com.google.firebase.firestore.ListenerRegistration
+          import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+          import java.text.SimpleDateFormat
+          import java.util.Date
+          import java.util.Locale
+          import java.util.UUID
+
+          private const val STATUS_DISPONIVEL = "disponivel"
+
+          private data class CaixaFechada(
+              val id: String,
+              val codigo: String,
+              val descricao: String,
+              val localizacao: String,
+              val validade: String,
+              val temValidade: Boolean,
+              val validadeOrdem: Int?,
+              val dataEntrada: Long,
+              val operador: String,
+              val dispositivo: String,
+              val status: String = STATUS_DISPONIVEL
+          )
+
+          class CaixasActivity : AppCompatActivity() {
+
+              private lateinit var tvOperador: TextView
+              private lateinit var tvLocalizacaoAtual: TextView
+              private lateinit var tvQuantidadeEstoque: TextView
+              private lateinit var etLocalizacao: EditText
+              private lateinit var etCodigo: EditText
+              private lateinit var etValidade: EditText
+              private lateinit var tvProduto: TextView
+              private lateinit var tvFeedback: TextView
+              private lateinit var containerEntrada: LinearLayout
+              private lateinit var containerEstoque: LinearLayout
+              private lateinit var containerListaCaixas: LinearLayout
+              private lateinit var btnEntrada: Button
+              private lateinit var btnEstoque: Button
+              private lateinit var btnScannerLocal: Button
+              private lateinit var btnScannerCodigo: Button
+              private lateinit var btnScannerValidade: Button
+              private lateinit var btnSemValidade: Button
+              private lateinit var btnRegistrar: Button
+              private lateinit var btnLimparLocal: Button
+              private lateinit var btnFiltrosEstoque: Button
+              private lateinit var btnExportarEstoque: Button
+              private lateinit var tvFiltroEstoque: TextView
+
+              private val db by lazy { FirebaseFirestore.getInstance() }
+              private var caixasListener: ListenerRegistration? = null
+              private val caixas = mutableListOf<CaixaFechada>()
+              private var nomeOperador = "Operador 1"
+              private var dispositivoId = ""
+              private var localizacaoAtual = ""
+              private var modoEstoque = false
+
+              private var filtroValidade = "todos"
+              private var filtroProximidade = "todas"
+              private var filtroLocalizacao = "todos"
+              private var filtroCodigo = "todos"
+              private var ordenacao = "fefo"
+
+              companion object {
+                  private const val PREFS = "reposicao_prefs"
+                  private const val KEY_OPERADOR = "operador"
+                  private const val KEY_DISPOSITIVO = "dispositivo_id"
+                  private const val COLECAO_CAIXAS = "caixas_fechadas"
+                  private const val REQUEST_EXPORTAR = 700
+              }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContentView(R.layout.activity_caixas)
+
+                  inicializarViews()
+                  carregarIdentificacao()
+                  configurarEventos()
+                  atualizarTelaEntrada()
+                  iniciarSincronizacaoCaixas()
+              }
+
+              override fun onDestroy() {
+                  caixasListener?.remove()
+                  caixasListener = null
+                  super.onDestroy()
+              }
+
+              private fun inicializarViews() {
+                  tvOperador = findViewById(R.id.tvCaixasOperador)
+                  tvLocalizacaoAtual = findViewById(R.id.tvLocalizacaoAtual)
+                  tvQuantidadeEstoque = findViewById(R.id.tvQuantidadeEstoque)
+                  etLocalizacao = findViewById(R.id.etLocalizacao)
+                  etCodigo = findViewById(R.id.etCodigoCaixa)
+                  etValidade = findViewById(R.id.etValidadeCaixa)
+                  tvProduto = findViewById(R.id.tvProdutoCaixa)
+                  tvFeedback = findViewById(R.id.tvFeedbackCaixas)
+                  containerEntrada = findViewById(R.id.containerEntradaCaixas)
+                  containerEstoque = findViewById(R.id.containerEstoqueCaixas)
+                  containerListaCaixas = findViewById(R.id.containerListaCaixas)
+                  btnEntrada = findViewById(R.id.btnEntradaCaixas)
+                  btnEstoque = findViewById(R.id.btnEstoqueCaixas)
+                  btnScannerLocal = findViewById(R.id.btnScannerLocal)
+                  btnScannerCodigo = findViewById(R.id.btnScannerCodigoCaixa)
+                  btnScannerValidade = findViewById(R.id.btnScannerValidadeCaixa)
+                  btnSemValidade = findViewById(R.id.btnSemValidade)
+                  btnRegistrar = findViewById(R.id.btnRegistrarCaixa)
+                  btnLimparLocal = findViewById(R.id.btnLimparLocal)
+                  btnFiltrosEstoque = findViewById(R.id.btnFiltrosEstoque)
+                  btnExportarEstoque = findViewById(R.id.btnExportarEstoque)
+                  tvFiltroEstoque = findViewById(R.id.tvFiltroEstoque)
+              }
+
+              private fun carregarIdentificacao() {
+                  val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                  nomeOperador = prefs.getString(KEY_OPERADOR, "Operador 1") ?: "Operador 1"
+                  dispositivoId = prefs.getString(KEY_DISPOSITIVO, null) ?: UUID.randomUUID().toString().also {
+                      prefs.edit().putString(KEY_DISPOSITIVO, it).apply()
+                  }
+                  tvOperador.text = "Operador: $nomeOperador"
+              }
+
+              private fun configurarEventos() {
+                  btnEntrada.setOnClickListener {
+                      modoEstoque = false
+                      atualizarTelaEntrada()
+                  }
+
+                  btnEstoque.setOnClickListener {
+                      modoEstoque = true
+                      atualizarTelaEstoque()
+                  }
+
+                  btnScannerLocal.setOnClickListener {
+                      abrirScanner { valor ->
+                          confirmarLocalizacao(normalizarLocalizacao(valor), iniciarFluxoContinuo = true)
+                      }
+                  }
+
+                  btnScannerCodigo.setOnClickListener {
+                      abrirScanner { valor ->
+                          receberCodigoEContinuar(extrairCodigo(valor), iniciarValidadeAutomaticamente = true)
+                      }
+                  }
+
+                  btnScannerValidade.setOnClickListener {
+                      abrirScannerValidadeERegistrar()
+                  }
+
+                  btnSemValidade.setOnClickListener {
+                      if (extrairCodigo(etCodigo.text.toString()).isBlank()) {
+                          Toast.makeText(this, "Primeiro informe ou bipe o código da caixa.", Toast.LENGTH_SHORT).show()
+                          return@setOnClickListener
+                      }
+                      AlertDialog.Builder(this)
+                          .setTitle("Registrar sem validade?")
+                          .setMessage("Use esta opção somente para produtos que realmente não possuem validade.")
+                          .setNegativeButton("VOLTAR", null)
+                          .setPositiveButton("REGISTRAR SEM VALIDADE") { _, _ -> registrarCaixa(false) }
+                          .show()
+                  }
+
+                  btnRegistrar.setOnClickListener {
+                      val validade = etValidade.text.toString().trim()
+                      if (validade.isNotEmpty()) {
+                          registrarCaixa(true)
+                      } else {
+                          AlertDialog.Builder(this)
+                              .setTitle("Validade não informada")
+                              .setMessage("A prioridade é cadastrar a validade. Se esta caixa realmente não tiver validade, escolha 'REGISTRAR SEM VALIDADE'.")
+                              .setNegativeButton("VOLTAR", null)
+                              .setPositiveButton("SEM VALIDADE") { _, _ -> registrarCaixa(false) }
+                              .show()
+                      }
+                  }
+
+                  btnLimparLocal.setOnClickListener {
+                      localizacaoAtual = ""
+                      etLocalizacao.setText("")
+                      atualizarLocalizacaoAtual()
+                      etLocalizacao.requestFocus()
+                  }
+
+                  btnFiltrosEstoque.setOnClickListener { abrirFiltrosEstoque() }
+                  btnExportarEstoque.setOnClickListener { exportarEstoqueCompleto() }
+
+                  etLocalizacao.setOnEditorActionListener { _, _, _ ->
+                      confirmarLocalizacao(normalizarLocalizacao(etLocalizacao.text.toString()), iniciarFluxoContinuo = true)
+                      true
+                  }
+
+                  etCodigo.setOnEditorActionListener { _, _, _ ->
+                      receberCodigoEContinuar(extrairCodigo(etCodigo.text.toString()), iniciarValidadeAutomaticamente = true)
+                      true
+                  }
+
+                  etValidade.setOnEditorActionListener { _, _, _ ->
+                      if (etValidade.text.toString().trim().isNotEmpty()) registrarCaixa(true)
+                      else abrirDialogoSemValidade()
+                      true
+                  }
+              }
+
+              private fun confirmarLocalizacao(local: String, iniciarFluxoContinuo: Boolean) {
+                  if (local.isBlank()) {
+                      Toast.makeText(this, "Localização inválida. Exemplo: #3021.", Toast.LENGTH_SHORT).show()
+                      return
+                  }
+                  localizacaoAtual = local
+                  etLocalizacao.setText(local)
+                  atualizarLocalizacaoAtual()
+                  if (iniciarFluxoContinuo) {
+                      Toast.makeText(this, "Local $local selecionado. Bipe o código da próxima caixa.", Toast.LENGTH_SHORT).show()
+                      abrirScannerCodigoAutomaticamente()
+                  } else {
+                      etCodigo.requestFocus()
+                  }
+              }
+
+              private fun receberCodigoEContinuar(codigo: String, iniciarValidadeAutomaticamente: Boolean) {
+                  if (codigo.isBlank()) {
+                      Toast.makeText(this, "Código inválido. A caixa deve fornecer um código de 5 números.", Toast.LENGTH_SHORT).show()
+                      return
+                  }
+                  etCodigo.setText(codigo)
+                  atualizarProdutoInformativo(codigo)
+                  if (iniciarValidadeAutomaticamente) {
+                      abrirScannerValidadeERegistrar()
+                  } else {
+                      etValidade.requestFocus()
+                  }
+              }
+
+              private fun abrirScannerCodigoAutomaticamente() {
+                  abrirScanner { valor ->
+                      receberCodigoEContinuar(extrairCodigo(valor), iniciarValidadeAutomaticamente = true)
+                  }
+              }
+
+              private fun abrirScannerValidadeERegistrar() {
+                  if (localizacaoAtual.isBlank()) {
+                      Toast.makeText(this, "Primeiro selecione uma localização.", Toast.LENGTH_SHORT).show()
+                      return
+                  }
+                  if (extrairCodigo(etCodigo.text.toString()).isBlank()) {
+                      Toast.makeText(this, "Primeiro bipe o código da caixa.", Toast.LENGTH_SHORT).show()
+                      return
+                  }
+
+                  abrirScanner { valor ->
+                      val validade = normalizarValidade(valor)
+                      if (validade == null) {
+                          Toast.makeText(this, "Validade inválida. Use MM/AA ou MM/AAAA.", Toast.LENGTH_LONG).show()
+                          abrirScannerValidadeERegistrar()
+                          return@abrirScanner
+                      }
+                      etValidade.setText(validade)
+                      registrarCaixa(true)
+                  }
+              }
+
+              private fun abrirDialogoSemValidade() {
+                  AlertDialog.Builder(this)
+                      .setTitle("Registrar sem validade?")
+                      .setMessage("Esta opção é excepcional. Use somente quando o produto não possuir validade.")
+                      .setNegativeButton("VOLTAR", null)
+                      .setPositiveButton("REGISTRAR SEM VALIDADE") { _, _ -> registrarCaixa(false) }
+                      .show()
+              }
+
+              private fun normalizarLocalizacao(valor: String): String {
+                  val texto = valor.trim().replace(" ", "")
+                  val semHash = texto.removePrefix("#")
+                  val numeros = semHash.filter { it.isDigit() }
+                  return numeros
+              }
+
+              private fun atualizarLocalizacaoAtual() {
+                  tvLocalizacaoAtual.text = if (localizacaoAtual.isBlank()) {
+                      "📍 Nenhuma localização selecionada"
+                  } else {
+                      "📍 Localização atual: #$localizacaoAtual"
+                  }
+              }
+
+              private fun atualizarTelaEntrada() {
+                  modoEstoque = false
+                  containerEntrada.visibility = View.VISIBLE
+                  containerEstoque.visibility = View.GONE
+                  btnEntrada.setBackgroundColor(Color.parseColor("#1565C0"))
+                  btnEstoque.setBackgroundColor(Color.parseColor("#E0E0E0"))
+                  btnEntrada.setTextColor(Color.WHITE)
+                  btnEstoque.setTextColor(Color.BLACK)
+                  tvFeedback.visibility = View.GONE
+                  atualizarLocalizacaoAtual()
+                  etCodigo.requestFocus()
+              }
+
+              private fun atualizarTelaEstoque() {
+                  modoEstoque = true
+                  containerEntrada.visibility = View.GONE
+                  containerEstoque.visibility = View.VISIBLE
+                  btnEntrada.setBackgroundColor(Color.parseColor("#E0E0E0"))
+                  btnEstoque.setBackgroundColor(Color.parseColor("#1565C0"))
+                  btnEntrada.setTextColor(Color.BLACK)
+                  btnEstoque.setTextColor(Color.WHITE)
+                  atualizarTextoFiltro()
+                  atualizarListaEstoque()
+              }
+
+              private fun atualizarProdutoInformativo(codigo: String) {
+                  if (codigo.isBlank()) {
+                      tvProduto.text = ""
+                      return
+                  }
+                  tvProduto.text = "Código: $codigo\nAguardando validade..."
+              }
+
+              private fun registrarCaixa(comValidade: Boolean) {
+                  val local = localizacaoAtual.ifBlank { normalizarLocalizacao(etLocalizacao.text.toString()) }
+                  val codigo = extrairCodigo(etCodigo.text.toString())
+                  val validadeEntrada = etValidade.text.toString().trim()
+
+                  if (local.isBlank()) {
+                      Toast.makeText(this, "Primeiro bipe ou informe a localização.", Toast.LENGTH_LONG).show()
+                      etLocalizacao.requestFocus()
+                      return
+                  }
+                  if (codigo.length != 5) {
+                      Toast.makeText(this, "Bipe ou informe um código de 5 números.", Toast.LENGTH_LONG).show()
+                      etCodigo.requestFocus()
+                      return
+                  }
+
+                  val validade = if (comValidade) normalizarValidade(validadeEntrada) else null
+                  if (comValidade && validade == null) {
+                      Toast.makeText(this, "Informe uma validade no formato MM/AA ou MM/AAAA.", Toast.LENGTH_LONG).show()
+                      etValidade.requestFocus()
+                      return
+                  }
+
+                  val agora = System.currentTimeMillis()
+                  val caixa = CaixaFechada(
+                      id = UUID.randomUUID().toString(),
+                      codigo = codigo,
+                      descricao = "",
+                      localizacao = local,
+                      validade = validade ?: "",
+                      temValidade = validade != null,
+                      validadeOrdem = validade?.let { validadeParaOrdem(it) },
+                      dataEntrada = agora,
+                      operador = nomeOperador,
+                      dispositivo = dispositivoId
+                  )
+
+                  val dados = hashMapOf<String, Any?>(
+                      "id" to caixa.id,
+                      "codigo" to caixa.codigo,
+                      "descricao" to caixa.descricao,
+                      "localizacao" to caixa.localizacao,
+                      "validade" to caixa.validade,
+                      "temValidade" to caixa.temValidade,
+                      "validadeOrdem" to caixa.validadeOrdem,
+                      "dataEntrada" to caixa.dataEntrada,
+                      "operador" to caixa.operador,
+                      "dispositivo" to caixa.dispositivo,
+                      "status" to caixa.status
+                  )
+
+                  db.collection(COLECAO_CAIXAS).document(caixa.id).set(dados)
+                      .addOnSuccessListener {
+                          etCodigo.setText("")
+                          etValidade.setText("")
+                          tvProduto.text = ""
+                          tvFeedback.text = if (caixa.temValidade) {
+                              "✅ Caixa ${caixa.codigo} registrada — validade ${caixa.validade}."
+                          } else {
+                              "✅ Caixa ${caixa.codigo} registrada — sem validade."
+                          }
+                          tvFeedback.visibility = View.VISIBLE
+                          etCodigo.requestFocus()
+                          abrirScannerCodigoAutomaticamente()
+                      }
+                      .addOnFailureListener { e ->
+                          Toast.makeText(this, "Erro ao registrar caixa: ${e.message}", Toast.LENGTH_LONG).show()
+                      }
+              }
+
+              private fun iniciarSincronizacaoCaixas() {
+                  caixasListener?.remove()
+                  caixasListener = db.collection(COLECAO_CAIXAS)
+                      .whereEqualTo("status", STATUS_DISPONIVEL)
+                      .addSnapshotListener { snapshot, error ->
+                          if (error != null || snapshot == null) return@addSnapshotListener
+
+                          caixas.clear()
+                          for (doc in snapshot.documents) {
+                              caixas.add(
+                                  CaixaFechada(
+                                      id = doc.getString("id") ?: doc.id,
+                                      codigo = doc.getString("codigo") ?: "",
+                                      descricao = doc.getString("descricao") ?: "",
+                                      localizacao = doc.getString("localizacao") ?: "",
+                                      validade = doc.getString("validade") ?: "",
+                                      temValidade = doc.getBoolean("temValidade") ?: false,
+                                      validadeOrdem = doc.getLong("validadeOrdem")?.toInt(),
+                                      dataEntrada = doc.getLong("dataEntrada") ?: 0L,
+                                      operador = doc.getString("operador") ?: "",
+                                      dispositivo = doc.getString("dispositivo") ?: "",
+                                      status = doc.getString("status") ?: STATUS_DISPONIVEL
+                                  )
+                              )
+                          }
+
+                          tvQuantidadeEstoque.text = "Caixas disponíveis: ${caixas.size}"
+                          if (modoEstoque) atualizarListaEstoque()
+                      }
+              }
+
+              private fun abrirFiltrosEstoque() {
+                  val locais = listOf("todos") + caixas.map { it.localizacao }.filter { it.isNotBlank() }.distinct().sorted()
+                  val codigos = listOf("todos") + caixas.map { it.codigo }.filter { it.isNotBlank() }.distinct().sorted()
+
+                  val layout = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(40, 10, 40, 0)
+                  }
+
+                  val spValidade = Spinner(this)
+                  spValidade.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item,
+                      listOf("Todos", "Somente com validade", "Somente sem validade"))
+                  spValidade.setSelection(when (filtroValidade) {
+                      "com" -> 1
+                      "sem" -> 2
+                      else -> 0
+                  })
+                  layout.addView(TextView(this).apply { text = "Mostrar"; setPadding(0, 10, 0, 4) })
+                  layout.addView(spValidade)
+
+                  val spProximidade = Spinner(this)
+                  spProximidade.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item,
+                      listOf("Todas as validades", "Vencidas", "Vencem neste mês", "Próximos 3 meses"))
+                  spProximidade.setSelection(when (filtroProximidade) {
+                      "vencidas" -> 1
+                      "mes" -> 2
+                      "3meses" -> 3
+                      else -> 0
+                  })
+                  layout.addView(TextView(this).apply { text = "Proximidade da validade"; setPadding(0, 14, 0, 4) })
+                  layout.addView(spProximidade)
+
+                  val spLocal = Spinner(this)
+                  val nomesLocais = locais.map { if (it == "todos") "Todas as localizações" else "Local #$it" }
+                  spLocal.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, nomesLocais)
+                  spLocal.setSelection(locais.indexOf(filtroLocalizacao).coerceAtLeast(0))
+                  layout.addView(TextView(this).apply { text = "Localização"; setPadding(0, 14, 0, 4) })
+                  layout.addView(spLocal)
+
+                  val spCodigo = Spinner(this)
+                  val nomesCodigos = codigos.map { if (it == "todos") "Todos os códigos" else it }
+                  spCodigo.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, nomesCodigos)
+                  spCodigo.setSelection(codigos.indexOf(filtroCodigo).coerceAtLeast(0))
+                  layout.addView(TextView(this).apply { text = "Código"; setPadding(0, 14, 0, 4) })
+                  layout.addView(spCodigo)
+
+                  val spOrdenacao = Spinner(this)
+                  spOrdenacao.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item,
+                      listOf("FEFO — validade mais próxima", "Código", "Localização", "Entrada mais recente"))
+                  spOrdenacao.setSelection(when (ordenacao) {
+                      "codigo" -> 1
+                      "local" -> 2
+                      "entrada" -> 3
+                      else -> 0
+                  })
+                  layout.addView(TextView(this).apply { text = "Ordenar por"; setPadding(0, 14, 0, 4) })
+                  layout.addView(spOrdenacao)
+
+                  AlertDialog.Builder(this)
+                      .setTitle("Filtros do estoque")
+                      .setView(layout)
+                      .setNegativeButton("CANCELAR", null)
+                      .setNeutralButton("LIMPAR") { _, _ ->
+                          filtroValidade = "todos"
+                          filtroProximidade = "todas"
+                          filtroLocalizacao = "todos"
+                          filtroCodigo = "todos"
+                          ordenacao = "fefo"
+                          atualizarTextoFiltro()
+                          atualizarListaEstoque()
+                      }
+                      .setPositiveButton("APLICAR") { _, _ ->
+                          filtroValidade = when (spValidade.selectedItemPosition) {
+                              1 -> "com"
+                              2 -> "sem"
+                              else -> "todos"
+                          }
+                          filtroProximidade = when (spProximidade.selectedItemPosition) {
+                              1 -> "vencidas"
+                              2 -> "mes"
+                              3 -> "3meses"
+                              else -> "todas"
+                          }
+                          filtroLocalizacao = locais[spLocal.selectedItemPosition.coerceIn(0, locais.lastIndex)]
+                          filtroCodigo = codigos[spCodigo.selectedItemPosition.coerceIn(0, codigos.lastIndex)]
+                          ordenacao = when (spOrdenacao.selectedItemPosition) {
+                              1 -> "codigo"
+                              2 -> "local"
+                              3 -> "entrada"
+                              else -> "fefo"
+                          }
+                          atualizarTextoFiltro()
+                          atualizarListaEstoque()
+                      }
+                      .show()
+              }
+
+              private fun atualizarTextoFiltro() {
+                  val validadeTexto = when (filtroValidade) {
+                      "com" -> "Com validade"
+                      "sem" -> "Sem validade"
+                      else -> "Todos"
+                  }
+                  val proximidadeTexto = when (filtroProximidade) {
+                      "vencidas" -> "Vencidas"
+                      "mes" -> "Este mês"
+                      "3meses" -> "Próximos 3 meses"
+                      else -> "Todas"
+                  }
+                  val localTexto = if (filtroLocalizacao == "todos") "Todas" else "#${filtroLocalizacao}"
+                  val codigoTexto = if (filtroCodigo == "todos") "Todos" else filtroCodigo
+                  val ordemTexto = when (ordenacao) {
+                      "codigo" -> "Código"
+                      "local" -> "Localização"
+                      "entrada" -> "Entrada recente"
+                      else -> "FEFO"
+                  }
+                  tvFiltroEstoque.text = "Filtros: $validadeTexto • Validade: $proximidadeTexto • Local: $localTexto • Código: $codigoTexto • Ordem: $ordemTexto"
+              }
+
+              private fun atualizarListaEstoque() {
+                  containerListaCaixas.removeAllViews()
+                  tvQuantidadeEstoque.text = "Caixas disponíveis: ${caixas.size}"
+
+                  val hoje = java.util.Calendar.getInstance()
+                  val mesAtual = hoje.get(java.util.Calendar.YEAR) * 100 + (hoje.get(java.util.Calendar.MONTH) + 1)
+                  val limiteTresMeses = hoje.clone() as java.util.Calendar
+                  limiteTresMeses.add(java.util.Calendar.MONTH, 3)
+                  val limiteTres = limiteTresMeses.get(java.util.Calendar.YEAR) * 100 + (limiteTresMeses.get(java.util.Calendar.MONTH) + 1)
+
+                  val filtradas = caixas.filter {
+                      val passaValidade = when (filtroValidade) {
+                          "com" -> it.temValidade
+                          "sem" -> !it.temValidade
+                          else -> true
+                      }
+                      val passaProximidade = when (filtroProximidade) {
+                          "vencidas" -> it.temValidade && (it.validadeOrdem ?: Int.MAX_VALUE) < mesAtual
+                          "mes" -> it.temValidade && it.validadeOrdem == mesAtual
+                          "3meses" -> it.temValidade && (it.validadeOrdem ?: Int.MAX_VALUE) in mesAtual..limiteTres
+                          else -> true
+                      }
+                      val passaLocal = filtroLocalizacao == "todos" || it.localizacao == filtroLocalizacao
+                      val passaCodigo = filtroCodigo == "todos" || it.codigo == filtroCodigo
+                      passaValidade && passaProximidade && passaLocal && passaCodigo
+                  }
+
+                  val ordenadas = when (ordenacao) {
+                      "codigo" -> filtradas.sortedWith(compareBy<CaixaFechada> { it.codigo }.thenBy { it.validadeOrdem ?: Int.MAX_VALUE }.thenBy { it.localizacao })
+                      "local" -> filtradas.sortedWith(compareBy<CaixaFechada> { it.localizacao }.thenBy { it.codigo }.thenBy { it.validadeOrdem ?: Int.MAX_VALUE })
+                      "entrada" -> filtradas.sortedByDescending { it.dataEntrada }
+                      else -> filtradas.sortedWith(
+                          compareBy<CaixaFechada> { if (it.temValidade) 0 else 1 }
+                              .thenBy { it.validadeOrdem ?: Int.MAX_VALUE }
+                              .thenBy { it.codigo }
+                              .thenBy { it.localizacao }
+                      )
+                  }
+
+                  if (ordenadas.isEmpty()) {
+                      val vazio = TextView(this).apply {
+                          text = "Nenhuma caixa disponível para os filtros selecionados."
+                          textSize = 16f
+                          setTextColor(Color.parseColor("#757575"))
+                          setPadding(20, 30, 20, 30)
+                      }
+                      containerListaCaixas.addView(vazio)
+                      return
+                  }
+
+                  for (caixa in ordenadas) {
+                      val card = LinearLayout(this).apply {
+                          orientation = LinearLayout.VERTICAL
+                          setPadding(22, 18, 22, 18)
+                          setBackgroundColor(Color.WHITE)
+                      }
+                      card.layoutParams = LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 6, 0, 6) }
+
+                      val titulo = TextView(this).apply {
+                          text = "📦 ${caixa.codigo}"
+                          textSize = 19f
+                          setTextColor(Color.parseColor("#1565C0"))
+                          setTypeface(null, android.graphics.Typeface.BOLD)
+                      }
+                      card.addView(titulo)
+
+                      val validadeTexto = if (caixa.temValidade) {
+                          if (ordenacao == "fefo") "🥇 Validade: ${caixa.validade}" else "🗓️ Validade: ${caixa.validade}"
+                      } else "🗓️ Sem validade"
+                      val detalhes = TextView(this).apply {
+                          text = "$validadeTexto\n📍 Localização: #${caixa.localizacao}\nEntrada: ${formatarData(caixa.dataEntrada)}"
+                          textSize = 15f
+                          setTextColor(Color.parseColor("#424242"))
+                          setPadding(0, 8, 0, 0)
+                      }
+                      card.addView(detalhes)
+
+                      val btnExcluir = Button(this).apply {
+                          text = "EXCLUIR"
+                          setOnClickListener { confirmarExcluir(caixa) }
+                      }
+                      card.addView(btnExcluir)
+                      containerListaCaixas.addView(card)
+                  }
+              }
+
+              private fun confirmarExcluir(caixa: CaixaFechada) {
+                  AlertDialog.Builder(this)
+                      .setTitle("Excluir caixa?")
+                      .setMessage(
+                          "Código: ${caixa.codigo}\n" +
+                          "Local: #${caixa.localizacao}\n" +
+                          (if (caixa.temValidade) "Validade: ${caixa.validade}" else "Sem validade") +
+                          "\n\nUse esta opção apenas para corrigir um cadastro feito por engano."
+                      )
+                      .setNegativeButton("CANCELAR", null)
+                      .setPositiveButton("EXCLUIR") { _, _ ->
+                          db.collection(COLECAO_CAIXAS).document(caixa.id).delete()
+                              .addOnSuccessListener { Toast.makeText(this, "Caixa removida do estoque.", Toast.LENGTH_SHORT).show() }
+                              .addOnFailureListener { e -> Toast.makeText(this, "Erro ao excluir: ${e.message}", Toast.LENGTH_LONG).show() }
+                      }
+                      .show()
+              }
+
+              private fun exportarEstoqueCompleto() {
+                  if (caixas.isEmpty()) {
+                      Toast.makeText(this, "Não há caixas disponíveis para exportar.", Toast.LENGTH_LONG).show()
+                      return
+                  }
+
+                  val porCodigo = caixas.groupBy { it.codigo }
+                  val linhas = mutableListOf<String>()
+                  linhas.add("Código;Validade da caixa;Tem validade;Localização;Quantidade de caixas do código;Validade mais próxima do código;Localização FEFO;Data de entrada")
+
+                  val caixasOrdenadas = caixas.sortedWith(
+                      compareBy<CaixaFechada> { it.codigo }
+                          .thenBy { if (it.temValidade) 0 else 1 }
+                          .thenBy { it.validadeOrdem ?: Int.MAX_VALUE }
+                          .thenBy { it.localizacao }
+                  )
+
+                  for (caixa in caixasOrdenadas) {
+                      val grupo = porCodigo[caixa.codigo].orEmpty()
+                      val comValidade = grupo.filter { it.temValidade && it.validadeOrdem != null }
+                      val primeira = comValidade.minWithOrNull(compareBy<CaixaFechada> { it.validadeOrdem }.thenBy { it.localizacao })
+                      val validadeMaisProxima = primeira?.validade ?: "Sem validade"
+                      val localFefo = primeira?.localizacao?.let { "#$it" } ?: "-"
+                      val quantidade = grupo.size
+                      val validadeCaixa = if (caixa.temValidade) caixa.validade else "Sem validade"
+                      val temValidade = if (caixa.temValidade) "SIM" else "NÃO"
+                      val dataEntrada = formatarData(caixa.dataEntrada)
+                      linhas.add(listOf(
+                          caixa.codigo,
+                          validadeCaixa,
+                          temValidade,
+                          "#${caixa.localizacao}",
+                          quantidade.toString(),
+                          validadeMaisProxima,
+                          localFefo,
+                          dataEntrada
+                      ).joinToString(";") { escaparCsv(it) })
+                  }
+
+                  val nome = "estoque_caixas_${SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault()).format(Date())}.csv"
+                  val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                      addCategory(Intent.CATEGORY_OPENABLE)
+                      type = "text/csv"
+                      putExtra(Intent.EXTRA_TITLE, nome)
+                  }
+                  startActivityForResult(intent, REQUEST_EXPORTAR)
+
+                  exportacaoPendente = linhas.joinToString("\n")
+              }
+
+              private var exportacaoPendente: String = ""
+
+              @Deprecated("Deprecated in Java")
+              override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+                  super.onActivityResult(requestCode, resultCode, data)
+                  if (requestCode == REQUEST_EXPORTAR && resultCode == Activity.RESULT_OK) {
+                      val uri = data?.data ?: return
+                      try {
+                          contentResolver.openOutputStream(uri)?.use { output ->
+                              output.write(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()))
+                              output.write(exportacaoPendente.toByteArray(Charsets.UTF_8))
+                          }
+                          Toast.makeText(this, "Planilha exportada com sucesso.", Toast.LENGTH_LONG).show()
+                      } catch (e: Exception) {
+                          Toast.makeText(this, "Erro ao exportar: ${e.message}", Toast.LENGTH_LONG).show()
+                      }
+                  }
+              }
+
+              private fun escaparCsv(valor: String): String {
+                  return if (valor.contains(";") || valor.contains("\"") || valor.contains("\n")) {
+                      "\"${valor.replace("\"", "\"\"")}\""
+                  } else valor
+              }
+
+              private fun abrirScanner(onResult: (String) -> Unit) {
+                  GmsBarcodeScanning.getClient(this).startScan()
+                      .addOnSuccessListener { barcode ->
+                          val valor = barcode.rawValue?.trim().orEmpty()
+                          if (valor.isBlank()) {
+                              Toast.makeText(this, "Não foi possível obter o código.", Toast.LENGTH_SHORT).show()
+                          } else {
+                              onResult(valor)
+                          }
+                      }
+                      .addOnCanceledListener { }
+                      .addOnFailureListener { e ->
+                          Toast.makeText(this, "Não foi possível abrir o leitor: ${e.message ?: "erro desconhecido"}", Toast.LENGTH_LONG).show()
+                      }
+              }
+
+              private fun extrairCodigo(valor: String): String {
+                  val numeros = valor.filter { it.isDigit() }
+                  return if (numeros.length == 5) numeros else ""
+              }
+
+              private fun normalizarValidade(valor: String): String? {
+                  val texto = valor.trim()
+                  val match = Regex("^(0[1-9]|1[0-2])[/.-](\d{2}|\d{4})$").find(texto) ?: return null
+                  val mes = match.groupValues[1]
+                  val ano = match.groupValues[2]
+                  return if (ano.length == 2) "$mes/$ano" else "$mes/${ano.takeLast(2)}"
+              }
+
+              private fun validadeParaOrdem(validade: String): Int? {
+                  val match = Regex("^(\d{2})/(\d{2})$").find(validade) ?: return null
+                  return (2000 + match.groupValues[2].toInt()) * 100 + match.groupValues[1].toInt()
+              }
+
+              private fun formatarData(timestamp: Long): String {
+                  if (timestamp <= 0) return "-"
+                  return SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(timestamp))
+              }
+          }
+          EOF
+
+      - name: Criar serviço de monitoramento em segundo plano
+        run: |
+          cat << 'EOF' > app/src/main/java/com/separacao/bip/MonitoramentoReposicaoService.kt
+          package com.separacao.bip
+
+          import android.Manifest
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.PendingIntent
+          import android.app.Service
+          import android.content.Context
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.content.pm.ServiceInfo
+          import android.os.Build
+          import android.os.IBinder
+          import androidx.core.app.NotificationCompat
+          import androidx.core.content.ContextCompat
+          import com.google.firebase.firestore.DocumentChange
+          import com.google.firebase.firestore.FirebaseFirestore
+          import com.google.firebase.firestore.ListenerRegistration
+          import java.util.UUID
+
+          class MonitoramentoReposicaoService : Service() {
+
+              private val db by lazy { FirebaseFirestore.getInstance() }
+              private var firestoreListener: ListenerRegistration? = null
+              private var snapshotInicial = true
+
+              private val dispositivoId: String by lazy {
+                  val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                  prefs.getString(KEY_DISPOSITIVO, null) ?: run {
+                      val androidId = android.provider.Settings.Secure.getString(
+                          contentResolver,
+                          android.provider.Settings.Secure.ANDROID_ID
+                      )
+                      val id = androidId?.takeIf { it.isNotBlank() }
+                          ?: UUID.randomUUID().toString()
+                      prefs.edit().putString(KEY_DISPOSITIVO, id).apply()
+                      id
+                  }
+              }
+
+              companion object {
+                  private const val PREFS = "reposicao_prefs"
+                  private const val KEY_NOTIFICACOES_ATIVAS = "notificacoes_ativas"
+                  private const val KEY_DISPOSITIVO = "dispositivo_id"
+                  private const val COLECAO_REPOSICOES = "reposicoes"
+                  private const val CANAL_MONITORAMENTO = "monitoramento_reposicoes"
+                  private const val CANAL_NOTIFICACOES = "novas_reposicoes"
+                  private const val NOTIFICACAO_MONITORAMENTO = 7001
+                  private const val STATUS_PENDENTE = "pendente"
+              }
+
+              override fun onCreate() {
+                  super.onCreate()
+                  criarCanais()
+                  promoverParaForeground()
+                  iniciarMonitoramento()
+              }
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  if (!notificacoesAtivas()) {
+                      pararMonitoramento()
+                      stopSelf()
+                      return START_NOT_STICKY
+                  }
+
+                  if (firestoreListener == null) {
+                      iniciarMonitoramento()
+                  }
+
+                  return START_STICKY
+              }
+
+              override fun onDestroy() {
+                  pararMonitoramento()
+                  super.onDestroy()
+              }
+
+              override fun onBind(intent: Intent?): IBinder? = null
+
+              private fun notificacoesAtivas(): Boolean {
+                  if (!getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                          .getBoolean(KEY_NOTIFICACOES_ATIVAS, false)
+                  ) return false
+
+                  return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                      ContextCompat.checkSelfPermission(
+                          this,
+                          Manifest.permission.POST_NOTIFICATIONS
+                      ) == PackageManager.PERMISSION_GRANTED
+              }
+
+              private fun criarCanais() {
+                  if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+
+                  val monitoramento = NotificationChannel(
+                      CANAL_MONITORAMENTO,
+                      "Monitoramento de reposições",
+                      NotificationManager.IMPORTANCE_LOW
+                  ).apply {
+                      description = "Indica que o monitoramento em segundo plano está ativo"
+                      setShowBadge(false)
+                  }
+
+                  val novas = NotificationChannel(
+                      CANAL_NOTIFICACOES,
+                      "Novas reposições",
+                      NotificationManager.IMPORTANCE_HIGH
+                  ).apply {
+                      description = "Avisos de novas pendências de reposição"
+                      enableVibration(true)
+                  }
+
+                  val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                  manager.createNotificationChannel(monitoramento)
+                  manager.createNotificationChannel(novas)
+              }
+
+              private fun promoverParaForeground() {
+                  val intent = Intent(this, MainActivity::class.java).apply {
+                      flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                  }
+                  val pendingIntent = PendingIntent.getActivity(
+                      this,
+                      NOTIFICACAO_MONITORAMENTO,
+                      intent,
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                          PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                      } else {
+                          PendingIntent.FLAG_UPDATE_CURRENT
+                      }
+                  )
+
+                  val notification = NotificationCompat.Builder(this, CANAL_MONITORAMENTO)
+                      .setSmallIcon(android.R.drawable.ic_popup_sync)
+                      .setContentTitle("Monitoramento ativo")
+                      .setContentText("Aguardando novas reposições")
+                      .setContentIntent(pendingIntent)
+                      .setOngoing(true)
+                      .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                      .setPriority(NotificationCompat.PRIORITY_LOW)
+                      .build()
+
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                      startForeground(
+                          NOTIFICACAO_MONITORAMENTO,
+                          notification,
+                          ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                      )
+                  } else {
+                      startForeground(NOTIFICACAO_MONITORAMENTO, notification)
+                  }
+              }
+
+              private fun iniciarMonitoramento() {
+                  if (!notificacoesAtivas()) return
+                  firestoreListener?.remove()
+                  snapshotInicial = true
+
+                  firestoreListener = db.collection(COLECAO_REPOSICOES)
+                      .addSnapshotListener { snapshot, error ->
+                          if (error != null || snapshot == null) return@addSnapshotListener
+
+                          val primeira = snapshotInicial
+                          snapshotInicial = false
+
+                          if (!primeira) {
+                              snapshot.documentChanges
+                                  .filter { it.type == DocumentChange.Type.ADDED }
+                                  .forEach { change ->
+                                      val doc = change.document
+                                      val status = doc.getString("status")
+                                          ?: if (doc.getBoolean("concluido") == true) "concluido" else STATUS_PENDENTE
+                                      val criador = doc.getString("dispositivo") ?: ""
+
+                                      if (status == STATUS_PENDENTE && criador != dispositivoId) {
+                                          mostrarNotificacao(
+                                              id = doc.getString("id") ?: doc.id,
+                                              codigo = doc.getString("codigo") ?: return@forEach,
+                                              descricao = doc.getString("descricao") ?: "",
+                                              rua = doc.getString("rua") ?: "",
+                                              rack = doc.getString("rack") ?: ""
+                                          )
+                                      }
+                                  }
+                          }
+                      }
+              }
+
+              private fun pararMonitoramento() {
+                  firestoreListener?.remove()
+                  firestoreListener = null
+              }
+
+              private fun mostrarNotificacao(
+                  id: String,
+                  codigo: String,
+                  descricao: String,
+                  rua: String,
+                  rack: String
+              ) {
+                  if (!notificacoesAtivas()) return
+
+                  val endereco = if (rua.isNotBlank() || rack.isNotBlank()) {
+                      "${rua.ifBlank { "Sem rua" }} — ${rack.ifBlank { "Sem rack" }}"
+                  } else {
+                      "Sem endereço cadastrado"
+                  }
+
+                  val texto = "${codigo} • ${descricao.ifBlank { "Produto" }}\n$endereco"
+                  val intent = Intent(this, MainActivity::class.java).apply {
+                      flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                  }
+                  val pendingIntent = PendingIntent.getActivity(
+                      this,
+                      (id.hashCode() and 0x7fffffff),
+                      intent,
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                          PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                      } else {
+                          PendingIntent.FLAG_UPDATE_CURRENT
+                      }
+                  )
+
+                  val notification = NotificationCompat.Builder(this, CANAL_NOTIFICACOES)
+                      .setSmallIcon(android.R.drawable.ic_dialog_info)
+                      .setContentTitle("Nova reposição pendente")
+                      .setContentText("Código $codigo — ${descricao.ifBlank { "Produto" }}")
+                      .setStyle(NotificationCompat.BigTextStyle().bigText(texto))
+                      .setPriority(NotificationCompat.PRIORITY_HIGH)
+                      .setContentIntent(pendingIntent)
+                      .setAutoCancel(true)
+                      .build()
+
+                  val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                  manager.notify((id.hashCode() and 0x7fffffff), notification)
+              }
+          }
+          EOF
+
+      - name: Criar receptor de inicialização do aparelho
+        run: |
+          cat << 'EOF' > app/src/main/java/com/separacao/bip/BootReceiver.kt
+          package com.separacao.bip
+
+          import android.Manifest
+          import android.content.BroadcastReceiver
+          import android.content.Context
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.os.Build
+          import androidx.core.content.ContextCompat
+
+          class BootReceiver : BroadcastReceiver() {
+              override fun onReceive(context: Context, intent: Intent?) {
+                  if (intent?.action != Intent.ACTION_BOOT_COMPLETED) return
+
+                  val prefs = context.getSharedPreferences("reposicao_prefs", Context.MODE_PRIVATE)
+                  val ativo = prefs.getBoolean("notificacoes_ativas", false)
+                  if (!ativo) return
+
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                      ContextCompat.checkSelfPermission(
+                          context,
+                          Manifest.permission.POST_NOTIFICATIONS
+                      ) != PackageManager.PERMISSION_GRANTED
+                  ) return
+
+                  val serviceIntent = Intent(context, MonitoramentoReposicaoService::class.java)
+                  try {
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                          context.startForegroundService(serviceIntent)
+                      } else {
+                          context.startService(serviceIntent)
+                      }
+                  } catch (_: Exception) {
+                      // O sistema pode impedir o início em determinadas condições.
+                  }
+              }
+          }
+          EOF
+
+      - name: Criar Gradle Wrapper
+        run: |
+          gradle wrapper --gradle-version 8.5
+          chmod +x gradlew
+
+      - name: Compilar APK
+        run: |
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Enviar APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-reposicao-v9.3.2
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: warn
